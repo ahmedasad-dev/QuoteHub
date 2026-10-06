@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f3ed">
+    <title>QuoteHub — A foundation in progress</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="{{ url_for('home') }}" aria-label="QuoteHub home">
+          <span class="brand-mark" aria-hidden="true">Q</span>
+          <span>QuoteHub</span>
+        </a>
+        <span class="phase-label">Phase 01 / Foundation</span>
+      </header>
+
+      <main class="hero">
+        <p class="eyebrow">The starting point</p>
+        <h1>Good work starts<br>with a solid base<span class="period">.</span></h1>
+        <p class="intro">QuoteHub is taking shape. This first phase puts the application, database, and development environment in place.</p>
+        <div class="status-note">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>The application is running</span>
+        </div>
+      </main>
+
+      <footer class="site-footer">
+        <span>QuoteHub</span>
+        <span>Built one phase at a time.</span>
+      </footer>
+    </div>
+  </body>
+</html>

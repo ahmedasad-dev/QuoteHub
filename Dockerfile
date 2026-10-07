@@ -10,6 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && useradd --create-home --uid 10001 appuser
 
 COPY --chown=appuser:appuser quotehub ./quotehub
+COPY --chown=appuser:appuser alembic.ini ./alembic.ini
+COPY --chown=appuser:appuser migrations ./migrations
 USER appuser
 
 EXPOSE 8000

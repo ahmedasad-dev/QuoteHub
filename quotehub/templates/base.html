@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f3ed">
+    <title>{% block title %}QuoteHub{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="site-header">
+        <a class="brand" href="{{ url_for('home') }}" aria-label="QuoteHub home">
+          <span class="brand-mark" aria-hidden="true">Q</span>
+          <span>QuoteHub</span>
+        </a>
+        <nav class="site-nav" aria-label="Main navigation">
+          {% if current_user.is_authenticated %}
+            <a href="{{ url_for('auth.dashboard') }}">Dashboard</a>
+            <form method="post" action="{{ url_for('auth.logout') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="nav-button" type="submit">Logout</button>
+            </form>
+          {% else %}
+            <a href="{{ url_for('auth.login') }}">Login</a>
+            <a href="{{ url_for('auth.register') }}">Register</a>
+          {% endif %}
+        </nav>
+      </header>
+
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="flash-messages" role="status">
+            {% for message in messages %}<p>{{ message }}</p>{% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+
+      <footer class="site-footer">
+        <span>QuoteHub</span>
+        <span>Built one phase at a time.</span>
+      </footer>
+    </div>
+  </body>
+</html>

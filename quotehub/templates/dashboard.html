@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Your account</p>
+    <h1 class="page-title">Welcome, {{ current_user.name }}</h1>
+    <p class="page-intro">You are signed in as a {{ current_user.role.value|lower }}.</p>
+    {% if current_user.role.value == 'CUSTOMER' %}
+      <a class="text-link" href="{{ url_for('auth.customer_area') }}">Open customer area</a>
+    {% elif current_user.role.value == 'PROVIDER' %}
+      <a class="text-link" href="{{ url_for('auth.provider_area') }}">Open provider area</a>
+    {% else %}
+      <a class="text-link" href="{{ url_for('auth.admin_area') }}">Open admin area</a>
+    {% endif %}
+  </main>
+{% endblock %}

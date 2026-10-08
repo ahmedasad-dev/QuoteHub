@@ -4,6 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
+from flask_login import UserMixin
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -44,7 +45,11 @@ class QuoteStatus(StrEnum):
     WITHDRAWN = "WITHDRAWN"
 
 
-class User(Base):
+def normalize_email_address(value: str) -> str:
+    return value.strip().lower()
+
+
+class User(UserMixin, Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -71,7 +76,7 @@ class User(Base):
 
     @validates("email")
     def normalize_email(self, _key: str, value: str) -> str:
-        return value.strip().lower()
+        return normalize_email_address(value)
 
 
 Index("uq_users_email_lower", func.lower(User.email), unique=True)

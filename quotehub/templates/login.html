@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Login — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Welcome back</p>
+    <h1 class="page-title">Log in</h1>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    <form class="auth-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email" value="{{ form_data.get('email', '') }}" required>
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+      <button class="primary-button" type="submit">Log in</button>
+    </form>
+    <p class="form-switch">New to QuoteHub? <a href="{{ url_for('auth.register') }}">Create an account</a></p>
+  </main>
+{% endblock %}

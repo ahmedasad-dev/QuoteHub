@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}{{ area }} area — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Protected area</p>
+    <h1 class="page-title">{{ area }} area</h1>
+    <p class="page-intro">This page is available to {{ area|lower }} accounts. Service features will be added in a later phase.</p>
+    <a class="text-link" href="{{ url_for('auth.dashboard') }}">Back to dashboard</a>
+  </main>
+{% endblock %}

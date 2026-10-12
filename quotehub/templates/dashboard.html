@@ -9,8 +9,10 @@
       <a class="text-link" href="{{ url_for('auth.customer_area') }}">Open customer area</a>
     {% elif current_user.role.value == 'PROVIDER' %}
       <a class="text-link" href="{{ url_for('auth.provider_area') }}">Open provider area</a>
+      <p><a class="text-link" href="{{ url_for('profiles.manage_profile') }}">Set up or edit your business profile</a></p>
     {% else %}
       <a class="text-link" href="{{ url_for('auth.admin_area') }}">Open admin area</a>
+      <p><a class="text-link" href="{{ url_for('categories.manage_categories') }}">Manage categories</a></p>
     {% endif %}
   </main>
 {% endblock %}

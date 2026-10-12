@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Manage categories — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content content-wide">
+    <p class="eyebrow">Admin</p>
+    <h1 class="page-title">Manage categories</h1>
+    <p class="page-intro">Add a category or edit an existing name and slug.</p>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    <form class="auth-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="name">Category name</label>
+      <input id="name" name="name" type="text" maxlength="100" value="{{ form_data.get('name', '') }}" required>
+      <label for="slug">Slug</label>
+      <input id="slug" name="slug" type="text" maxlength="120" value="{{ form_data.get('slug', '') }}" required>
+      <p class="field-hint">Use letters, numbers, and hyphens.</p>
+      <button class="primary-button" type="submit">Add category</button>
+    </form>
+    <h2 class="section-title">Existing categories</h2>
+    {% if categories %}
+      <ul class="category-list">
+        {% for category in categories %}
+          <li><span>{{ category.name }} <small>{{ category.slug }}</small></span><a href="{{ url_for('categories.edit_category', category_id=category.id) }}">Edit</a></li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="page-intro">No categories have been added yet.</p>
+    {% endif %}
+  </main>
+{% endblock %}

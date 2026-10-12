@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Edit category — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Admin</p>
+    <h1 class="page-title">Edit category</h1>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    <form class="auth-form" method="post" action="{{ url_for('categories.edit_category', category_id=category_id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="name">Category name</label>
+      <input id="name" name="name" type="text" maxlength="100" value="{{ form_data.get('name', '') }}" required>
+      <label for="slug">Slug</label>
+      <input id="slug" name="slug" type="text" maxlength="120" value="{{ form_data.get('slug', '') }}" required>
+      <button class="primary-button" type="submit">Save category</button>
+    </form>
+    <p class="form-switch"><a href="{{ url_for('categories.manage_categories') }}">Back to categories</a></p>
+  </main>
+{% endblock %}

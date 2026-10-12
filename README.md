@@ -1,6 +1,6 @@
 # QuoteHub
 
-QuoteHub has a small Flask foundation, a Jinja2 homepage, a PostgreSQL-backed health check, and the Phase 2 database schema. Phase 3 adds customer/provider accounts and protected placeholder pages. Service requests and quotes have no workflows yet.
+QuoteHub has a small Flask foundation, a Jinja2 homepage, a PostgreSQL-backed health check, and customer/provider accounts. Providers can manage a public business profile, and admins can manage service categories. Service requests and quotes have no workflows yet.
 
 ## Prerequisites
 
@@ -21,6 +21,16 @@ Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead.
 
 Register a Customer or Provider account at `/register`, then use `/login` and the POST logout button in the navigation. Both account types reach `/dashboard`; role-specific placeholder pages are `/customer` and `/provider`. `/admin` is reserved for accounts created outside public registration.
 
+Providers can set up or edit their business details at `/provider/profile`. Saving a profile creates a public read-only page at `/providers/<profile_id>`. The public page shows business name, description, phone, and location; provider account details stay private. Everyone can browse `/categories`. Only admins can use `/admin/categories` to add categories or rename an existing category and its slug.
+
+To add the five starter categories, run:
+
+```powershell
+docker compose exec web flask --app quotehub seed-categories
+```
+
+You can run this command again. It skips categories matching a starter name or slug and never edits existing rows. The current schema has no inactive category state, so `/categories` displays every category.
+
 CSRF tokens protect registration, login, and logout forms. Cookies are HTTP-only and SameSite=Lax. `SESSION_COOKIE_SECURE=0` supports local HTTP; set it to `1` when serving over HTTPS. Keep `SECRET_KEY` stable and private so existing sessions remain valid.
 
 ## Check health
@@ -37,7 +47,7 @@ Inspect service status and logs with `docker compose ps` and `docker compose log
 
 ## Database migrations
 
-The five Phase 2 tables are managed by Alembic. Apply committed revisions after starting or updating the containers:
+The five database tables are managed by Alembic. Phase 4 reuses the existing profile and category columns, so it needs no new migration. Apply committed revisions after starting or updating the containers:
 
 ```powershell
 docker compose exec web alembic upgrade head
@@ -74,8 +84,10 @@ The `postgres_data` volume preserves database files. `docker compose down --volu
 quotehub/
   __init__.py       Application factory and routes
   auth.py           Registration, login, logout, and role checks
+  categories.py     Public listing, admin management, and seed command
   config.py         Environment-based configuration
   models.py         SQLAlchemy models and relationships
+  provider_profiles.py  Provider profile editing and public view
   static/style.css  Homepage styles
   templates/        Jinja2 homepage
 alembic.ini         Alembic configuration

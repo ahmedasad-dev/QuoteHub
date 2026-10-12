@@ -8,8 +8,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .auth import auth
+from .categories import categories, seed_categories
 from .config import Config
 from .models import User
+from .provider_profiles import profiles
 
 
 def create_app(test_config=None):
@@ -31,6 +33,9 @@ def create_app(test_config=None):
     login_manager.init_app(app)
     CSRFProtect(app)
     app.register_blueprint(auth)
+    app.register_blueprint(profiles)
+    app.register_blueprint(categories)
+    app.cli.add_command(seed_categories)
 
     @login_manager.user_loader
     def load_user(user_id):

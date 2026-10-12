@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Business profile — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Provider profile</p>
+    <h1 class="page-title">Your business</h1>
+    <p class="page-intro">Add the details visitors will see on your public profile.</p>
+    {% if profile_id %}
+      <p><a class="text-link" href="{{ url_for('profiles.public_profile', profile_id=profile_id) }}">View public profile</a></p>
+    {% endif %}
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    <form class="auth-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="business_name">Business name</label>
+      <input id="business_name" name="business_name" type="text" maxlength="200" value="{{ form_data.get('business_name', '') }}" required>
+      <label for="description">Description</label>
+      <textarea id="description" name="description" maxlength="2000" rows="6">{{ form_data.get('description', '') }}</textarea>
+      <label for="phone">Business phone</label>
+      <input id="phone" name="phone" type="tel" maxlength="40" value="{{ form_data.get('phone', '') }}">
+      <label for="location">Location</label>
+      <input id="location" name="location" type="text" maxlength="200" value="{{ form_data.get('location', '') }}" required>
+      <button class="primary-button" type="submit">Save profile</button>
+    </form>
+  </main>
+{% endblock %}

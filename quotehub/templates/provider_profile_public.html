@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.business_name }} — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content">
+    <p class="eyebrow">Provider profile</p>
+    <h1 class="page-title">{{ profile.business_name }}</h1>
+    <p class="page-intro">{{ profile.location }}</p>
+    {% if profile.description %}<p class="profile-description">{{ profile.description }}</p>{% endif %}
+    {% if profile.phone %}<p class="profile-contact"><strong>Phone:</strong> {{ profile.phone }}</p>{% endif %}
+  </main>
+{% endblock %}

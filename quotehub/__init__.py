@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from .admin_cli import create_admin
 from .auth import auth
 from .categories import categories, seed_categories
 from .config import Config
@@ -35,6 +36,7 @@ def create_app(test_config=None):
     app.register_blueprint(auth)
     app.register_blueprint(profiles)
     app.register_blueprint(categories)
+    app.cli.add_command(create_admin)
     app.cli.add_command(seed_categories)
 
     @login_manager.user_loader

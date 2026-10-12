@@ -21,6 +21,14 @@ Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead.
 
 Register a Customer or Provider account at `/register`, then use `/login` and the POST logout button in the navigation. Both account types reach `/dashboard`; role-specific placeholder pages are `/customer` and `/provider`. `/admin` is reserved for accounts created outside public registration.
 
+To create an admin account after applying migrations, run this in a terminal:
+
+```powershell
+docker compose exec web flask --app quotehub create-admin
+```
+
+Enter the name, email, and password at the prompts. The password is hidden while typing and is stored as a hash. The command always creates an ADMIN account; public registration cannot create one. It rejects an email already used by any account. No default admin account or password is created.
+
 Providers can set up or edit their business details at `/provider/profile`. Saving a profile creates a public read-only page at `/providers/<profile_id>`. The public page shows business name, description, phone, and location; provider account details stay private. Everyone can browse `/categories`. Only admins can use `/admin/categories` to add categories or rename an existing category and its slug.
 
 To add the five starter categories, run:
@@ -83,6 +91,7 @@ The `postgres_data` volume preserves database files. `docker compose down --volu
 ```text
 quotehub/
   __init__.py       Application factory and routes
+  admin_cli.py      Interactive admin account creation command
   auth.py           Registration, login, logout, and role checks
   categories.py     Public listing, admin management, and seed command
   config.py         Environment-based configuration

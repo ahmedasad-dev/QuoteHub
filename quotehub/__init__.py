@@ -13,6 +13,7 @@ from .categories import categories, seed_categories
 from .config import Config
 from .models import User
 from .provider_profiles import profiles
+from .quotes import quotes
 from .service_requests import requests
 
 
@@ -38,6 +39,7 @@ def create_app(test_config=None):
     app.register_blueprint(profiles)
     app.register_blueprint(categories)
     app.register_blueprint(requests)
+    app.register_blueprint(quotes)
     app.cli.add_command(create_admin)
     app.cli.add_command(seed_categories)
 

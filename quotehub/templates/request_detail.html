@@ -13,6 +13,7 @@
     </dl>
     <h2 class="section-title">Description</h2>
     <p class="profile-description">{{ item.description }}</p>
+    <p><a class="text-link" href="{{ url_for('quotes.customer_quotes', request_id=item.id) }}">View quotes for this request</a></p>
     {% if item.status.value == 'OPEN' %}
       <div class="request-actions">
         <a class="text-link" href="{{ url_for('requests.edit_request', request_id=item.id) }}">Edit request</a>

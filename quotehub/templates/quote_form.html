@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Submit quote — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content content-wide">
+    <p class="eyebrow">Provider quote</p>
+    <h1 class="page-title">Quote for {{ item.title }}</h1>
+    <p class="page-intro">{{ item.category.name }} · {{ item.location }} · Budget: {{ item.budget if item.budget is not none else 'Not specified' }}</p>
+    <p class="profile-description">{{ item.description }}</p>
+    {% if error %}<p class="form-error" role="alert">{{ error }}</p>{% endif %}
+    {% if not error or 'already submitted' not in error %}
+      <form class="auth-form" method="post" action="{{ url_for('quotes.submit_quote', request_id=item.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="amount">Quote amount</label>
+        <input id="amount" name="amount" type="text" inputmode="decimal" value="{{ form_data.get('amount', '') }}" required aria-describedby="amount-hint">
+        <p id="amount-hint" class="field-hint">Positive amount, at most two decimal places.</p>
+        <label for="message">Message (optional)</label>
+        <textarea id="message" name="message" maxlength="2000" rows="6">{{ form_data.get('message', '') }}</textarea>
+        <button class="primary-button" type="submit">Submit quote</button>
+      </form>
+    {% endif %}
+    <p class="form-switch"><a class="text-link" href="{{ url_for('quotes.provider_quotes') }}">My quotes</a> · <a class="text-link" href="{{ url_for('requests.browse_requests') }}">Browse requests</a></p>
+  </main>
+{% endblock %}

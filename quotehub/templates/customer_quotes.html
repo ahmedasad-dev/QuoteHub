@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Quotes for {{ item.title }} — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content content-wide">
+    <p class="eyebrow">Your request</p>
+    <h1 class="page-title">Quotes for {{ item.title }}</h1>
+    <p class="page-intro">Quote decisions are not available yet.</p>
+    {% if quotes %}
+      <ul class="request-list">
+        {% for quote in quotes %}
+          <li class="request-card">
+            {% set profile = quote.provider.provider_profile %}
+            <h2>
+              {% if profile %}<a href="{{ url_for('profiles.public_profile', profile_id=profile.id) }}">{{ profile.business_name }}</a>
+              {% else %}Provider profile unavailable{% endif %}
+            </h2>
+            <p>Amount: {{ quote.amount }} · Status: {{ quote.status.value|title }}</p>
+            {% if quote.message %}<p class="profile-description">{{ quote.message }}</p>{% endif %}
+            <p class="request-meta">Submitted {{ quote.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="page-intro">No quotes have been submitted for this request yet.</p>
+    {% endif %}
+    <nav class="pagination" aria-label="Quote pages">
+      {% if page > 1 %}<a class="text-link" href="{{ url_for('quotes.customer_quotes', request_id=item.id, page=page-1) }}">Previous</a>{% endif %}
+      {% if has_next %}<a class="text-link" href="{{ url_for('quotes.customer_quotes', request_id=item.id, page=page+1) }}">Next</a>{% endif %}
+    </nav>
+    <p class="form-switch"><a class="text-link" href="{{ url_for('requests.request_detail', request_id=item.id) }}">Back to request</a></p>
+  </main>
+{% endblock %}

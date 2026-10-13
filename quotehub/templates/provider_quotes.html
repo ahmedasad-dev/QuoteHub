@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}My quotes — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content content-wide">
+    <p class="eyebrow">Provider</p>
+    <h1 class="page-title">My quotes</h1>
+    {% if items %}
+      <ul class="request-list">
+        {% for quote in items %}
+          <li class="request-card">
+            <h2><a href="{{ url_for('quotes.provider_quote_detail', quote_id=quote.id) }}">{{ quote.service_request.title }}</a></h2>
+            <p>Amount: {{ quote.amount }} · Status: {{ quote.status.value|title }}</p>
+            <p class="request-meta">Submitted {{ quote.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="page-intro">You have not submitted any quotes yet.</p>
+      <p><a class="text-link" href="{{ url_for('requests.browse_requests') }}">Browse open requests</a></p>
+    {% endif %}
+    <nav class="pagination" aria-label="Quote pages">
+      {% if page > 1 %}<a class="text-link" href="{{ url_for('quotes.provider_quotes', page=page-1) }}">Previous</a>{% endif %}
+      {% if has_next %}<a class="text-link" href="{{ url_for('quotes.provider_quotes', page=page+1) }}">Next</a>{% endif %}
+    </nav>
+  </main>
+{% endblock %}

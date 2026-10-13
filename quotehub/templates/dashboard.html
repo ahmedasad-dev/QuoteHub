@@ -7,9 +7,12 @@
     <p class="page-intro">You are signed in as a {{ current_user.role.value|lower }}.</p>
     {% if current_user.role.value == 'CUSTOMER' %}
       <a class="text-link" href="{{ url_for('auth.customer_area') }}">Open customer area</a>
+      <p><a class="text-link" href="{{ url_for('requests.create_request') }}">Create a request</a></p>
+      <p><a class="text-link" href="{{ url_for('requests.my_requests') }}">View my requests</a></p>
     {% elif current_user.role.value == 'PROVIDER' %}
       <a class="text-link" href="{{ url_for('auth.provider_area') }}">Open provider area</a>
       <p><a class="text-link" href="{{ url_for('profiles.manage_profile') }}">Set up or edit your business profile</a></p>
+      <p><a class="text-link" href="{{ url_for('requests.browse_requests') }}">Browse open requests</a></p>
     {% else %}
       <a class="text-link" href="{{ url_for('auth.admin_area') }}">Open admin area</a>
       <p><a class="text-link" href="{{ url_for('categories.manage_categories') }}">Manage categories</a></p>

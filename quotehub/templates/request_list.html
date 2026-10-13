@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Open requests' if provider_view else 'My requests' }} — QuoteHub{% endblock %}
+{% block content %}
+  <main class="content content-wide">
+    <p class="eyebrow">{{ 'Provider' if provider_view else 'Customer' }}</p>
+    <h1 class="page-title">{{ 'Open requests' if provider_view else 'My requests' }}</h1>
+    {% if provider_view %}
+      <p class="page-intro">Browse current open work. Quote submission is not available yet.</p>
+    {% else %}
+      <p><a class="text-link" href="{{ url_for('requests.create_request') }}">Create a request</a></p>
+    {% endif %}
+    {% if items %}
+      <ul class="request-list">
+        {% for item in items %}
+          <li class="request-card">
+            <h2>{% if provider_view %}{{ item.title }}{% else %}<a href="{{ url_for('requests.request_detail', request_id=item.id) }}">{{ item.title }}</a>{% endif %}</h2>
+            <p>{{ item.category.name }} · {{ item.location }}</p>
+            <p>Status: {{ item.status.value|title }} · Budget: {{ item.budget if item.budget is not none else 'Not specified' }}</p>
+            <p class="request-meta">Created {{ item.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="page-intro">{{ 'No open requests are available right now.' if provider_view else 'You have no requests yet.' }}</p>
+    {% endif %}
+    <nav class="pagination" aria-label="Request pages">
+      {% if page > 1 %}<a class="text-link" href="{{ url_for('requests.browse_requests' if provider_view else 'requests.my_requests', page=page-1) }}">Previous</a>{% endif %}
+      {% if has_next %}<a class="text-link" href="{{ url_for('requests.browse_requests' if provider_view else 'requests.my_requests', page=page+1) }}">Next</a>{% endif %}
+    </nav>
+  </main>
+{% endblock %}

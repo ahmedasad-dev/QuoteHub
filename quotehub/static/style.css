@@ -87,6 +87,20 @@ h1 { max-width: 900px; margin: 0; font-family: Georgia, 'Times New Roman', serif
 .category-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid #d9dbd1; font-weight: 700; }
 .category-list small { margin-left: .5rem; color: #60716b; font-size: .8rem; font-weight: 400; }
 .category-list a { color: #245a50; font-size: .9rem; }
+.request-list { list-style: none; margin: 2rem 0; padding: 0; }
+.request-card { padding: 1.4rem 0; border-top: 1px solid #d9dbd1; }
+.request-card h2 { margin: 0 0 .6rem; font-size: 1.2rem; }
+.request-card p { margin: .45rem 0; line-height: 1.5; }
+.request-card a { color: #245a50; }
+.request-meta { color: #60716b; font-size: .85rem; }
+.request-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin: 2rem 0; }
+.request-facts div { padding: 1rem; border: 1px solid #d9dbd1; border-radius: .35rem; }
+.request-facts dt { color: #60716b; font-size: .8rem; font-weight: 700; }
+.request-facts dd { margin: .4rem 0 0; }
+.request-actions, .pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 1.2rem; margin: 2rem 0; }
+.request-actions form { margin: 0; }
+.secondary-button { padding: .7rem 1rem; border: 1px solid #822e20; border-radius: .35rem; color: #822e20; background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
+.secondary-button:hover { background: #fff0eb; }
 
 @media (max-width: 600px) {
   .page-shell { width: min(100% - 2rem, 1180px); }

@@ -101,6 +101,14 @@ h1 { max-width: 900px; margin: 0; font-family: Georgia, 'Times New Roman', serif
 .request-actions form { margin: 0; }
 .secondary-button { padding: .7rem 1rem; border: 1px solid #822e20; border-radius: .35rem; color: #822e20; background: transparent; font: inherit; font-weight: 700; cursor: pointer; }
 .secondary-button:hover { background: #fff0eb; }
+.dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: .8rem; margin: 2rem 0 1rem; }
+.metric-card { display: flex; flex-direction: column; gap: .5rem; min-width: 0; padding: 1.1rem; border: 1px solid #d9dbd1; border-radius: .4rem; background: #fff; color: #4e5b57; font-size: .87rem; }
+.metric-number { color: #245a50; font-family: Georgia, 'Times New Roman', serif; font-size: 2.2rem; line-height: 1; }
+.dashboard-links { display: flex; flex-wrap: wrap; gap: .7rem 1.5rem; margin: 1.5rem 0; }
+.request-card h3 { margin: 0 0 .6rem; font-size: 1.1rem; }
+.status-badge { display: inline-block; padding: .2rem .55rem; border-radius: 999px; color: #245a50; background: #edf4ec; font-size: .78rem; font-weight: 700; }
+.status-badge--accepted, .status-badge--completed { color: #245a50; background: #dcebdc; }
+.status-badge--cancelled, .status-badge--rejected, .status-badge--withdrawn { color: #675a53; background: #ebe7e2; }
 
 @media (max-width: 600px) {
   .page-shell { width: min(100% - 2rem, 1180px); }

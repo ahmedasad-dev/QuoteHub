@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from .dashboard import customer_dashboard_data, provider_dashboard_data
 from .models import User, UserRole, normalize_email_address
 
 
@@ -124,6 +125,17 @@ def logout():
 @auth.get("/dashboard")
 @login_required
 def dashboard():
+    if current_user.role in {UserRole.CUSTOMER, UserRole.PROVIDER}:
+        try:
+            with Session(current_app.extensions["db_engine"]) as db:
+                if current_user.role == UserRole.CUSTOMER:
+                    data = customer_dashboard_data(db, current_user.id)
+                else:
+                    data = provider_dashboard_data(db, current_user.id)
+                return render_template("dashboard.html", **data)
+        except SQLAlchemyError:
+            current_app.logger.exception("Dashboard database error")
+            abort(503)
     return render_template("dashboard.html")
 
 

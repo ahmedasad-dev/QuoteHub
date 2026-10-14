@@ -21,6 +21,8 @@ Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead.
 
 Register a Customer or Provider account at `/register`, then use `/login` and the POST logout button in the navigation. Both account types reach `/dashboard`; role-specific placeholder pages are `/customer` and `/provider`. `/admin` is reserved for accounts created outside public registration.
 
+The customer dashboard shows counts of owned requests by status and the six most recent owned requests, including a count of all quotes on each. The provider dashboard shows open requests the provider can still quote (excluding their own requests and requests they have already quoted), pending and accepted quotes, and completed jobs. Completed jobs require that provider's accepted quote on a COMPLETED request. The accepted quote total includes completed jobs. The six most recent quotes link to their details. Admin dashboard links remain unchanged.
+
 To create an admin account after applying migrations, run this in a terminal:
 
 ```powershell

@@ -5,12 +5,13 @@ import re
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user
+from flask_login import login_required
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from .auth import role_required
-from .models import Category, ServiceRequest, ServiceRequestStatus, UserRole
+from .models import Category, Quote, QuoteStatus, ServiceRequest, ServiceRequestStatus, UserRole
 
 
 requests = Blueprint("requests", __name__)
@@ -254,6 +255,78 @@ def cancel_request(request_id):
 
     flash("Request cancelled.")
     return redirect(url_for("requests.request_detail", request_id=request_id))
+
+
+@requests.post("/requests/<int:request_id>/complete")
+@login_required
+def complete_request(request_id):
+    if current_user.role not in {UserRole.CUSTOMER, UserRole.PROVIDER}:
+        abort(403)
+
+    destination = (
+        url_for("requests.request_detail", request_id=request_id)
+        if current_user.role == UserRole.CUSTOMER
+        else url_for("quotes.provider_quotes")
+    )
+    try:
+        with Session(current_app.extensions["db_engine"]) as db:
+            # PostgreSQL serializes completion with acceptance, cancellation, and quote changes.
+            item = db.scalar(
+                select(ServiceRequest)
+                .where(ServiceRequest.id == request_id)
+                .with_for_update()
+            )
+            if item is None:
+                abort(404)
+            if current_user.role == UserRole.CUSTOMER and item.customer_id != current_user.id:
+                abort(404)
+
+            accepted_quotes = list(db.scalars(
+                select(Quote)
+                .where(
+                    Quote.service_request_id == request_id,
+                    Quote.status == QuoteStatus.ACCEPTED,
+                )
+                .limit(2)
+            ))
+            if current_user.role == UserRole.PROVIDER:
+                if len(accepted_quotes) != 1 or accepted_quotes[0].provider_id != current_user.id:
+                    abort(404)
+                destination = url_for(
+                    "quotes.provider_quote_detail", quote_id=accepted_quotes[0].id
+                )
+
+            if item.status != ServiceRequestStatus.ACCEPTED:
+                flash("Only accepted requests can be completed. No change was made.")
+                return redirect(destination)
+            if len(accepted_quotes) != 1:
+                flash("This request has no single accepted quote. No change was made.")
+                return redirect(destination)
+
+            try:
+                result = db.execute(
+                    update(ServiceRequest)
+                    .where(
+                        ServiceRequest.id == request_id,
+                        ServiceRequest.status == ServiceRequestStatus.ACCEPTED,
+                    )
+                    .values(status=ServiceRequestStatus.COMPLETED, updated_at=func.now())
+                )
+                if result.rowcount != 1:
+                    db.rollback()
+                    flash("This request changed. Reload it before completing.")
+                    return redirect(destination)
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                raise
+    except SQLAlchemyError:
+        current_app.logger.exception("Service completion database error")
+        flash("Could not complete the request. No change was saved.")
+        return redirect(destination)
+
+    flash("Request completed.")
+    return redirect(destination)
 
 
 @requests.get("/provider/requests")

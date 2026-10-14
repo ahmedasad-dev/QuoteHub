@@ -523,3 +523,188 @@ def test_acceptance_rolls_back_if_second_update_fails(app, client, monkeypatch):
         assert db.get(Quote, first).status == QuoteStatus.PENDING
         assert db.get(Quote, second).status == QuoteStatus.PENDING
         assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.OPEN
+
+
+def accepted_request(app, ids):
+    quote_id = add_quote(app, ids["request"], ids["provider"], QuoteStatus.ACCEPTED)
+    with Session(app.extensions["db_engine"]) as db:
+        db.get(ServiceRequest, ids["request"]).status = ServiceRequestStatus.ACCEPTED
+        db.commit()
+    return quote_id
+
+
+def complete(client, request_id, token_path, **extra):
+    return client.post(
+        f"/requests/{request_id}/complete",
+        data={**extra, "csrf_token": token(client, token_path)},
+    )
+
+
+def test_owning_customer_completes_accepted_request(app, client):
+    ids = seed(app)
+    quote_id = accepted_request(app, ids)
+    login(client, "one@example.com")
+    detail_path = f"/requests/{ids['request']}"
+    assert b"Mark request completed" in client.get(detail_path).data
+    response = complete(client, ids["request"], detail_path, provider_id=str(ids["other_provider"]))
+    assert response.status_code == 302
+    assert response.location.endswith(detail_path)
+    detail = client.get(response.location)
+    assert b"Request completed" in detail.data
+    assert b"Mark request completed" not in detail.data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.COMPLETED
+        assert db.get(Quote, quote_id).status == QuoteStatus.ACCEPTED
+
+
+def test_accepted_provider_completes_request(app, client):
+    ids = seed(app)
+    quote_id = accepted_request(app, ids)
+    login(client, "provider1@example.com")
+    quote_path = f"/provider/quotes/{quote_id}"
+    assert b"Mark request completed" in client.get(quote_path).data
+    response = complete(client, ids["request"], quote_path, customer_id=str(ids["other_customer"]))
+    assert response.status_code == 302
+    assert response.location.endswith(quote_path)
+    detail = client.get(response.location)
+    assert b"Request completed" in detail.data
+    assert b"Mark request completed" not in detail.data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.COMPLETED
+
+
+def test_other_quote_provider_cannot_complete_accepted_request(app, client):
+    ids = seed(app)
+    accepted_request(app, ids)
+    other_quote = add_quote(app, ids["request"], ids["other_provider"], QuoteStatus.REJECTED)
+    login(client, "provider2@example.com")
+    quote_path = f"/provider/quotes/{other_quote}"
+    assert b"Mark request completed" not in client.get(quote_path).data
+    assert complete(client, ids["request"], quote_path).status_code == 404
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
+
+
+def test_unrelated_accounts_cannot_complete_request(app, client):
+    ids = seed(app)
+    accepted_request(app, ids)
+    login(client, "two@example.com")
+    assert complete(client, ids["request"], "/dashboard").status_code == 404
+    switch_user(client, "provider2@example.com")
+    assert complete(client, ids["request"], "/dashboard").status_code == 404
+    switch_user(client, "admin@example.com")
+    assert complete(client, ids["request"], "/dashboard").status_code == 403
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
+
+
+@pytest.mark.parametrize("status", [
+    ServiceRequestStatus.OPEN, ServiceRequestStatus.CANCELLED,
+    ServiceRequestStatus.COMPLETED, ServiceRequestStatus.QUOTED,
+])
+def test_request_in_other_status_cannot_be_completed(app, client, status):
+    ids = seed(app)
+    quote_id = accepted_request(app, ids)
+    with Session(app.extensions["db_engine"]) as db:
+        db.get(ServiceRequest, ids["request"]).status = status
+        db.commit()
+    login(client, "one@example.com")
+    detail_path = f"/requests/{ids['request']}"
+    assert b"Mark request completed" not in client.get(detail_path).data
+    response = complete(client, ids["request"], detail_path)
+    assert response.status_code == 302
+    assert b"Only accepted requests can be completed" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == status
+        assert db.get(Quote, quote_id).status == QuoteStatus.ACCEPTED
+
+
+def test_completed_request_cannot_be_completed_twice(app, client):
+    ids = seed(app)
+    accepted_request(app, ids)
+    login(client, "one@example.com")
+    detail_path = f"/requests/{ids['request']}"
+    assert complete(client, ids["request"], detail_path).status_code == 302
+    stale = complete(client, ids["request"], detail_path)
+    assert stale.status_code == 302
+    assert b"Only accepted requests can be completed" in client.get(stale.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.COMPLETED
+
+
+def test_completion_requires_one_accepted_quote_for_request(app, client):
+    ids = seed(app)
+    accepted_request(app, ids)
+    add_quote(app, ids["request"], ids["other_provider"], QuoteStatus.ACCEPTED)
+    login(client, "one@example.com")
+    response = complete(client, ids["request"], f"/requests/{ids['request']}")
+    assert response.status_code == 302
+    assert b"no single accepted quote" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
+
+
+def test_customer_cancels_open_request_and_preserves_quotes(app, client):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    login(client, "one@example.com")
+    detail_path = f"/requests/{ids['request']}"
+    assert b"Cancel request" in client.get(detail_path).data
+    response = client.post(
+        f"{detail_path}/cancel", data={"csrf_token": token(client, detail_path)}
+    )
+    assert response.status_code == 302
+    detail = client.get(response.location)
+    assert b"Request cancelled" in detail.data
+    assert b"Cancel request" not in detail.data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.CANCELLED
+        assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+
+
+@pytest.mark.parametrize("status", [ServiceRequestStatus.ACCEPTED, ServiceRequestStatus.COMPLETED])
+def test_accepted_or_completed_request_cannot_be_cancelled(app, client, status):
+    ids = seed(app)
+    accepted_request(app, ids)
+    with Session(app.extensions["db_engine"]) as db:
+        db.get(ServiceRequest, ids["request"]).status = status
+        db.commit()
+    login(client, "one@example.com")
+    assert client.post(
+        f"/requests/{ids['request']}/cancel",
+        data={"csrf_token": token(client, f"/requests/{ids['request']}")},
+    ).status_code == 409
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == status
+
+
+def test_completion_is_post_only_and_csrf_protected(app, client):
+    ids = seed(app)
+    accepted_request(app, ids)
+    path = f"/requests/{ids['request']}/complete"
+    assert client.get(path).status_code == 405
+    login(client, "one@example.com")
+    assert client.get(path).status_code == 405
+    assert client.post(path).status_code == 400
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
+
+
+def test_completion_rolls_back_when_commit_fails(app, client, monkeypatch):
+    ids = seed(app)
+    accepted_request(app, ids)
+    login(client, "one@example.com")
+    detail_path = f"/requests/{ids['request']}"
+    csrf = token(client, detail_path)
+
+    def failed_commit(_db):
+        raise SQLAlchemyError("simulated commit failure")
+
+    monkeypatch.setattr(Session, "commit", failed_commit)
+    response = client.post(
+        f"{detail_path}/complete", data={"csrf_token": csrf}
+    )
+    assert response.status_code == 302
+    assert b"No change was saved" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED

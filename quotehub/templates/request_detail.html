@@ -22,6 +22,11 @@
           <button class="secondary-button" type="submit">Cancel request</button>
         </form>
       </div>
+    {% elif item.status.value == 'ACCEPTED' %}
+      <form method="post" action="{{ url_for('requests.complete_request', request_id=item.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="primary-button" type="submit">Mark request completed</button>
+      </form>
     {% endif %}
     <p class="form-switch"><a class="text-link" href="{{ url_for('requests.my_requests') }}">Back to my requests</a></p>
   </main>

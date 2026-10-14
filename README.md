@@ -35,7 +35,9 @@ Customers can create a request at `/requests/new` and view their own requests at
 
 Providers can submit one quote per OPEN request from the browse page and manage their quotes at `/provider/quotes`. A new quote starts as PENDING. The provider can withdraw it only while both the quote is PENDING and the request is OPEN; withdrawal preserves it with status WITHDRAWN. A withdrawn quote cannot be resubmitted for the same request.
 
-Customers can view quotes for their own requests from the request detail page. While a request is OPEN, its customer may reject an individual PENDING quote without closing the request, or accept one PENDING quote. Acceptance sets that quote to ACCEPTED, rejects the other PENDING quotes for the request, and sets the request to ACCEPTED in one transaction. Already rejected and withdrawn quotes keep their statuses. Once the request is no longer OPEN, no further quote decisions or provider withdrawals are allowed. Quote submission itself leaves the request OPEN. Completion and other later workflows are not part of this phase.
+Customers can view quotes for their own requests from the request detail page. While a request is OPEN, its customer may reject an individual PENDING quote without closing the request, or accept one PENDING quote. Acceptance sets that quote to ACCEPTED, rejects the other PENDING quotes for the request, and sets the request to ACCEPTED in one transaction. Already rejected and withdrawn quotes keep their statuses. Once the request is no longer OPEN, no further quote decisions or provider withdrawals are allowed. Quote submission itself leaves the request OPEN.
+
+An OPEN request can be cancelled only by its customer. Cancellation sets its status to CANCELLED and keeps the request and any quotes. An ACCEPTED request can be marked COMPLETED by its customer or by the provider whose quote was accepted. Other providers cannot complete it. Completion requires exactly one accepted quote for the request and leaves quote statuses unchanged. ACCEPTED and COMPLETED requests cannot be cancelled through the ordinary cancellation action. Reviews, payments, and other later workflows are not included.
 
 To add the five starter categories, run:
 
@@ -61,7 +63,7 @@ Inspect service status and logs with `docker compose ps` and `docker compose log
 
 ## Database migrations
 
-The five database tables are managed by Alembic. Phase 7 reuses the existing quote and request statuses, so it needs no new migration. Apply committed revisions after starting or updating the containers:
+The five database tables are managed by Alembic. Phase 8 reuses the existing quote and request statuses, so it needs no new migration. Apply committed revisions after starting or updating the containers:
 
 ```powershell
 docker compose exec web alembic upgrade head

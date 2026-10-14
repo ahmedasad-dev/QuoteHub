@@ -31,9 +31,9 @@ docker compose exec web flask --app quotehub create-admin
 
 Enter the name, email, and password at the prompts. The password is hidden while typing and is stored as a hash. The command always creates an ADMIN account; public registration cannot create one. It rejects an email already used by any account. No default admin account or password is created.
 
-Providers can set up or edit their business details at `/provider/profile`. Saving a profile creates a public read-only page at `/providers/<profile_id>`. The public page shows business name, description, phone, and location; provider account details stay private. Everyone can browse `/categories`. Only admins can use `/admin/categories` to add categories or rename an existing category and its slug.
+Providers can set up or edit their business details at `/provider/profile`. Saving a profile creates a public read-only page at `/providers/<profile_id>`. Anyone can search public profiles at `/providers` by business name or description and filter by business location. The public pages show business details; provider account details stay private. Provider profiles currently have no category association, so the directory has no category filter. Everyone can browse `/categories`. Only admins can use `/admin/categories` to add categories or rename an existing category and its slug.
 
-Customers can create a request at `/requests/new` and view their own requests at `/requests`. A request starts as OPEN. Its owner can edit or cancel it only while it is OPEN; cancellation preserves the record with status CANCELLED. Providers can browse open requests at `/provider/requests`, without customer account details. Both lists show 20 requests per page.
+Customers can create a request at `/requests/new` and view their own requests at `/requests`. A request starts as OPEN. Its owner can edit or cancel it only while it is OPEN; cancellation preserves the record with status CANCELLED. Providers can browse open requests at `/provider/requests`, without customer account details. They can search titles and descriptions, and filter by category, location, and minimum or maximum budget. Requests without a budget appear in unfiltered results but are excluded whenever either budget limit is active. Search filters remain active while paging. The browse pages show 20 results per page.
 
 Providers can submit one quote per OPEN request from the browse page and manage their quotes at `/provider/quotes`. A new quote starts as PENDING. The provider can withdraw it only while both the quote is PENDING and the request is OPEN; withdrawal preserves it with status WITHDRAWN. A withdrawn quote cannot be resubmitted for the same request.
 
@@ -65,7 +65,7 @@ Inspect service status and logs with `docker compose ps` and `docker compose log
 
 ## Database migrations
 
-The five database tables are managed by Alembic. Phase 8 reuses the existing quote and request statuses, so it needs no new migration. Apply committed revisions after starting or updating the containers:
+The five database tables are managed by Alembic. Phase 9B uses the existing schema, so it needs no new migration. Apply committed revisions after starting or updating the containers:
 
 ```powershell
 docker compose exec web alembic upgrade head
@@ -107,6 +107,7 @@ quotehub/
   config.py         Environment-based configuration
   models.py         SQLAlchemy models and relationships
   provider_profiles.py  Provider profile editing and public view
+  search.py        Shared literal text search helper
   quotes.py        Provider quote submission and private quote views
   service_requests.py   Customer request management and provider browsing
   static/style.css  Homepage styles

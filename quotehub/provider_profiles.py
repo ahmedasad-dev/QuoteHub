@@ -2,12 +2,14 @@
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .auth import role_required
 from .models import ProviderProfile, UserRole
+from .search import contains_text
+from .service_requests import PAGE_SIZE, page_number
 
 
 profiles = Blueprint("profiles", __name__)
@@ -117,3 +119,43 @@ def public_profile(profile_id: int):
         abort(503)
 
     return render_template("provider_profile_public.html", profile=public_fields)
+
+
+@profiles.get("/providers")
+def browse_profiles():
+    page = page_number()
+    filters = {
+        "q": inline_text(request.args.get("q", "")),
+        "location": inline_text(request.args.get("location", "")),
+    }
+    error = None
+    if len(filters["q"]) > 200 or len(filters["location"]) > 200:
+        error = "Search text and location must be 200 characters or fewer."
+    active_filters = {key: value for key, value in filters.items() if value}
+    if error:
+        return render_template(
+            "provider_list.html", profiles=[], filters=filters,
+            active_filters=active_filters, page=page, has_next=False, error=error,
+        ), 400
+    try:
+        with Session(current_app.extensions["db_engine"]) as db:
+            query = select(ProviderProfile)
+            if filters["q"]:
+                query = query.where(or_(
+                    contains_text(ProviderProfile.business_name, filters["q"]),
+                    contains_text(ProviderProfile.description, filters["q"]),
+                ))
+            if filters["location"]:
+                query = query.where(contains_text(ProviderProfile.location, filters["location"]))
+            profiles_found = list(db.scalars(
+                query.order_by(ProviderProfile.business_name, ProviderProfile.id)
+                .limit(PAGE_SIZE + 1).offset((page - 1) * PAGE_SIZE)
+            ))
+            return render_template(
+                "provider_list.html", profiles=profiles_found[:PAGE_SIZE],
+                filters=filters, active_filters=active_filters, page=page,
+                has_next=len(profiles_found) > PAGE_SIZE,
+            )
+    except SQLAlchemyError:
+        current_app.logger.exception("Public provider listing database error")
+        abort(503)

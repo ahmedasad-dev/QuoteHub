@@ -6,12 +6,13 @@ import re
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user
 from flask_login import login_required
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from .auth import role_required
 from .models import Category, Quote, QuoteStatus, ServiceRequest, ServiceRequestStatus, UserRole
+from .search import contains_text
 
 
 requests = Blueprint("requests", __name__)
@@ -333,12 +334,73 @@ def complete_request(request_id):
 @role_required(UserRole.PROVIDER)
 def browse_requests():
     page = page_number()
+    filters = {
+        "q": " ".join(request.args.get("q", "").split()),
+        "category_id": request.args.get("category_id", "").strip(),
+        "location": " ".join(request.args.get("location", "").split()),
+        "min_budget": request.args.get("min_budget", "").strip(),
+        "max_budget": request.args.get("max_budget", "").strip(),
+    }
+    error = None
+    if len(filters["q"]) > 200 or len(filters["location"]) > 200:
+        error = "Search text and location must be 200 characters or fewer."
+    category_id = None
+    if filters["category_id"]:
+        raw = filters["category_id"]
+        if not raw.isascii() or not raw.isdecimal() or len(raw) > 10 or int(raw) < 1:
+            error = "Choose a valid category."
+        else:
+            category_id = int(raw)
+    budgets = {}
+    for key in ("min_budget", "max_budget"):
+        raw = filters[key]
+        if raw:
+            if not re.fullmatch(r"[0-9]+(?:\.[0-9]{1,2})?", raw):
+                error = "Budgets must be non-negative amounts with at most two decimal places."
+            else:
+                try:
+                    budgets[key] = Decimal(raw)
+                except InvalidOperation:
+                    error = "Enter a valid budget."
+                if key in budgets and budgets[key] > MAX_BUDGET:
+                    error = "Budget must be at most 9,999,999,999.99."
+    if ("min_budget" in budgets and "max_budget" in budgets
+            and budgets["min_budget"] > budgets["max_budget"]):
+        error = "Minimum budget cannot exceed maximum budget."
+
     try:
         with Session(current_app.extensions["db_engine"]) as db:
+            categories = categories_for_form(db)
+            if category_id is not None and db.get(Category, category_id) is None:
+                error = "Choose a valid category."
+            active_filters = {key: value for key, value in filters.items() if value}
+            if error:
+                return render_template(
+                    "request_list.html", items=[], page=page, has_next=False,
+                    provider_view=True, categories=categories, filters=filters,
+                    active_filters=active_filters, error=error,
+                ), 400
+            query = select(ServiceRequest).options(joinedload(ServiceRequest.category)).where(
+                ServiceRequest.status == ServiceRequestStatus.OPEN,
+                ServiceRequest.customer_id != current_user.id,
+            )
+            if filters["q"]:
+                query = query.where(or_(
+                    contains_text(ServiceRequest.title, filters["q"]),
+                    contains_text(ServiceRequest.description, filters["q"]),
+                ))
+            if category_id is not None:
+                query = query.where(ServiceRequest.category_id == category_id)
+            if filters["location"]:
+                query = query.where(contains_text(ServiceRequest.location, filters["location"]))
+            if budgets:
+                query = query.where(ServiceRequest.budget.is_not(None))
+            if "min_budget" in budgets:
+                query = query.where(ServiceRequest.budget >= budgets["min_budget"])
+            if "max_budget" in budgets:
+                query = query.where(ServiceRequest.budget <= budgets["max_budget"])
             items = list(db.scalars(
-                select(ServiceRequest)
-                .options(joinedload(ServiceRequest.category))
-                .where(ServiceRequest.status == ServiceRequestStatus.OPEN)
+                query
                 .order_by(ServiceRequest.created_at.desc(), ServiceRequest.id.desc())
                 .limit(PAGE_SIZE + 1)
                 .offset((page - 1) * PAGE_SIZE)
@@ -346,6 +408,7 @@ def browse_requests():
             return render_template(
                 "request_list.html", items=items[:PAGE_SIZE], page=page,
                 has_next=len(items) > PAGE_SIZE, provider_view=True,
+                categories=categories, filters=filters, active_filters=active_filters,
             )
     except SQLAlchemyError:
         current_app.logger.exception("Provider request browsing database error")

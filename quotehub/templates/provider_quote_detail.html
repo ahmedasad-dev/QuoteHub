@@ -16,7 +16,7 @@
     <p class="profile-description">{{ quote.service_request.description }}</p>
     <h2 class="section-title">Your message</h2>
     <p class="profile-description">{{ quote.message or 'No message supplied.' }}</p>
-    {% if quote.status.value == 'PENDING' %}
+    {% if quote.status.value == 'PENDING' and quote.service_request.status.value == 'OPEN' %}
       <form method="post" action="{{ url_for('quotes.withdraw_quote', quote_id=quote.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="secondary-button" type="submit">Withdraw quote</button>

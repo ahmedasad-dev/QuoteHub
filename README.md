@@ -33,7 +33,9 @@ Providers can set up or edit their business details at `/provider/profile`. Savi
 
 Customers can create a request at `/requests/new` and view their own requests at `/requests`. A request starts as OPEN. Its owner can edit or cancel it only while it is OPEN; cancellation preserves the record with status CANCELLED. Providers can browse open requests at `/provider/requests`, without customer account details. Both lists show 20 requests per page.
 
-Providers can submit one quote per OPEN request from the browse page and manage their quotes at `/provider/quotes`. A new quote starts as PENDING. The provider can withdraw it only while PENDING; withdrawal preserves it with status WITHDRAWN. A withdrawn quote cannot be resubmitted for the same request. Customers can view quotes for their own requests from the request detail page. Quote acceptance and rejection are not available yet. Quote creation leaves the request status OPEN; later phases will define quote-driven status transitions.
+Providers can submit one quote per OPEN request from the browse page and manage their quotes at `/provider/quotes`. A new quote starts as PENDING. The provider can withdraw it only while both the quote is PENDING and the request is OPEN; withdrawal preserves it with status WITHDRAWN. A withdrawn quote cannot be resubmitted for the same request.
+
+Customers can view quotes for their own requests from the request detail page. While a request is OPEN, its customer may reject an individual PENDING quote without closing the request, or accept one PENDING quote. Acceptance sets that quote to ACCEPTED, rejects the other PENDING quotes for the request, and sets the request to ACCEPTED in one transaction. Already rejected and withdrawn quotes keep their statuses. Once the request is no longer OPEN, no further quote decisions or provider withdrawals are allowed. Quote submission itself leaves the request OPEN. Completion and other later workflows are not part of this phase.
 
 To add the five starter categories, run:
 
@@ -59,7 +61,7 @@ Inspect service status and logs with `docker compose ps` and `docker compose log
 
 ## Database migrations
 
-The five database tables are managed by Alembic. Phase 6 reuses the existing quote and request schema, so it needs no new migration. Apply committed revisions after starting or updating the containers:
+The five database tables are managed by Alembic. Phase 7 reuses the existing quote and request statuses, so it needs no new migration. Apply committed revisions after starting or updating the containers:
 
 ```powershell
 docker compose exec web alembic upgrade head

@@ -5,7 +5,7 @@ import re
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import current_user
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
@@ -163,9 +163,25 @@ def provider_quote_detail(quote_id):
 def withdraw_quote(quote_id):
     try:
         with Session(current_app.extensions["db_engine"]) as db:
+            request_id = db.scalar(
+                select(Quote.service_request_id).where(
+                    Quote.id == quote_id, Quote.provider_id == current_user.id
+                )
+            )
+            if request_id is None:
+                abort(404)
+            item = db.scalar(
+                select(ServiceRequest).where(ServiceRequest.id == request_id).with_for_update()
+            )
+            if item is None:
+                abort(404)
             quote = owned_quote(db, quote_id)
+            if item.status != ServiceRequestStatus.OPEN:
+                flash("Quotes can be withdrawn only while the request is open.")
+                return render_template("provider_quote_detail.html", quote=quote), 409
             if quote.status != QuoteStatus.PENDING:
-                abort(409, description="Only pending quotes can be withdrawn.")
+                flash("Only pending quotes can be withdrawn.")
+                return render_template("provider_quote_detail.html", quote=quote), 409
             result = db.execute(
                 update(Quote)
                 .where(
@@ -177,7 +193,8 @@ def withdraw_quote(quote_id):
             )
             if result.rowcount != 1:
                 db.rollback()
-                abort(409, description="This quote changed. Reload it before withdrawing.")
+                flash("This quote changed. Reload it before withdrawing.")
+                return redirect(url_for("quotes.provider_quote_detail", quote_id=quote_id))
             db.commit()
     except SQLAlchemyError:
         current_app.logger.exception("Quote withdrawal database error")
@@ -209,3 +226,95 @@ def customer_quotes(request_id):
     except SQLAlchemyError:
         current_app.logger.exception("Customer quote listing database error")
         abort(503)
+
+
+def decide_quote(request_id, quote_id, *, accept):
+    destination = url_for("quotes.customer_quotes", request_id=request_id)
+    action = "accept" if accept else "reject"
+    try:
+        with Session(current_app.extensions["db_engine"]) as db:
+            item = db.scalar(
+                select(ServiceRequest)
+                .where(
+                    ServiceRequest.id == request_id,
+                    ServiceRequest.customer_id == current_user.id,
+                )
+                .with_for_update()
+            )
+            if item is None:
+                abort(404)
+            quote = db.scalar(
+                select(Quote).where(
+                    Quote.id == quote_id, Quote.service_request_id == request_id
+                )
+            )
+            if quote is None:
+                abort(404)
+            if item.status != ServiceRequestStatus.OPEN:
+                flash("This request is no longer open. No quote was changed.")
+                return redirect(destination)
+            if quote.status != QuoteStatus.PENDING:
+                flash("This quote is no longer pending. No quote was changed.")
+                return redirect(destination)
+
+            try:
+                result = db.execute(
+                    update(Quote)
+                    .where(
+                        Quote.id == quote_id,
+                        Quote.service_request_id == request_id,
+                        Quote.status == QuoteStatus.PENDING,
+                    )
+                    .values(status=QuoteStatus.ACCEPTED if accept else QuoteStatus.REJECTED)
+                )
+                if result.rowcount != 1:
+                    db.rollback()
+                    flash("This quote changed. Reload the list before trying again.")
+                    return redirect(destination)
+
+                if accept:
+                    db.execute(
+                        update(Quote)
+                        .where(
+                            Quote.service_request_id == request_id,
+                            Quote.id != quote_id,
+                            Quote.status == QuoteStatus.PENDING,
+                        )
+                        .values(status=QuoteStatus.REJECTED)
+                    )
+                    request_result = db.execute(
+                        update(ServiceRequest)
+                        .where(
+                            ServiceRequest.id == request_id,
+                            ServiceRequest.customer_id == current_user.id,
+                            ServiceRequest.status == ServiceRequestStatus.OPEN,
+                        )
+                        .values(status=ServiceRequestStatus.ACCEPTED, updated_at=func.now())
+                    )
+                    if request_result.rowcount != 1:
+                        db.rollback()
+                        flash("This request changed. Reload the list before trying again.")
+                        return redirect(destination)
+                db.commit()
+            except SQLAlchemyError:
+                db.rollback()
+                raise
+    except SQLAlchemyError:
+        current_app.logger.exception("Customer quote decision database error")
+        flash(f"Could not {action} the quote. No changes were saved.")
+        return redirect(destination)
+
+    flash("Quote accepted." if accept else "Quote rejected.")
+    return redirect(destination)
+
+
+@quotes.post("/requests/<int:request_id>/quotes/<int:quote_id>/accept")
+@role_required(UserRole.CUSTOMER)
+def accept_quote(request_id, quote_id):
+    return decide_quote(request_id, quote_id, accept=True)
+
+
+@quotes.post("/requests/<int:request_id>/quotes/<int:quote_id>/reject")
+@role_required(UserRole.CUSTOMER)
+def reject_quote(request_id, quote_id):
+    return decide_quote(request_id, quote_id, accept=False)

@@ -5,7 +5,7 @@ import re
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
 
@@ -326,3 +326,200 @@ def test_quote_writes_require_csrf(app, client):
     assert client.post(f"/provider/quotes/{quote_id}/withdraw").status_code == 400
     with Session(app.extensions["db_engine"]) as db:
         assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+
+
+def decision(client, request_id, quote_id, action):
+    path = f"/requests/{request_id}/quotes/{quote_id}/{action}"
+    csrf = token(client, f"/requests/{request_id}/quotes")
+    return client.post(path, data={"csrf_token": csrf})
+
+
+def test_customer_accepts_one_quote_and_rejects_only_other_pending_quotes(app, client):
+    ids = seed(app)
+    selected = add_quote(app, ids["request"], ids["provider"])
+    other_pending = add_quote(app, ids["request"], ids["other_provider"])
+    with Session(app.extensions["db_engine"]) as db:
+        password_hash = generate_password_hash("password-123")
+        extra = [
+            User(name="Third provider", email="third@example.com", password_hash=password_hash, role=UserRole.PROVIDER),
+            User(name="Fourth provider", email="fourth@example.com", password_hash=password_hash, role=UserRole.PROVIDER),
+        ]
+        db.add_all(extra)
+        db.commit()
+        rejected_provider, withdrawn_provider = extra[0].id, extra[1].id
+    already_rejected = add_quote(app, ids["request"], rejected_provider, QuoteStatus.REJECTED)
+    already_withdrawn = add_quote(app, ids["request"], withdrawn_provider, QuoteStatus.WITHDRAWN)
+
+    login(client, "one@example.com")
+    before = client.get(f"/requests/{ids['request']}/quotes")
+    assert before.data.count(b"Accept quote") == 2
+    assert before.data.count(b"Reject quote") == 2
+    response = decision(client, ids["request"], selected, "accept")
+    assert response.status_code == 302
+    assert b"Quote accepted" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, selected).status == QuoteStatus.ACCEPTED
+        assert db.get(Quote, other_pending).status == QuoteStatus.REJECTED
+        assert db.get(Quote, already_rejected).status == QuoteStatus.REJECTED
+        assert db.get(Quote, already_withdrawn).status == QuoteStatus.WITHDRAWN
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
+    after = client.get(f"/requests/{ids['request']}/quotes")
+    assert b"Accept quote" not in after.data
+    assert b"Reject quote" not in after.data
+
+
+def test_customer_rejects_one_pending_quote_and_request_stays_open(app, client):
+    ids = seed(app)
+    rejected = add_quote(app, ids["request"], ids["provider"])
+    pending = add_quote(app, ids["request"], ids["other_provider"])
+    login(client, "one@example.com")
+    response = decision(client, ids["request"], rejected, "reject")
+    assert response.status_code == 302
+    assert b"Quote rejected" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, rejected).status == QuoteStatus.REJECTED
+        assert db.get(Quote, pending).status == QuoteStatus.PENDING
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.OPEN
+
+
+@pytest.mark.parametrize("action", ["accept", "reject"])
+def test_other_customer_and_provider_cannot_decide(app, client, action):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    path = f"/requests/{ids['request']}/quotes/{quote_id}/{action}"
+    assert client.post(path, data={"csrf_token": token(client, "/login")}).status_code == 302
+    login(client, "two@example.com")
+    assert client.post(path, data={"csrf_token": token(client, "/dashboard")}).status_code == 404
+    switch_user(client, "provider1@example.com")
+    assert client.post(path, data={"csrf_token": token(client, "/dashboard")}).status_code == 403
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.OPEN
+
+
+@pytest.mark.parametrize("request_status", [
+    ServiceRequestStatus.QUOTED, ServiceRequestStatus.ACCEPTED,
+    ServiceRequestStatus.COMPLETED, ServiceRequestStatus.CANCELLED,
+])
+def test_closed_request_cannot_accept_quote(app, client, request_status):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    with Session(app.extensions["db_engine"]) as db:
+        db.get(ServiceRequest, ids["request"]).status = request_status
+        db.commit()
+    login(client, "one@example.com")
+    response = decision(client, ids["request"], quote_id, "accept")
+    assert response.status_code == 302
+    assert b"no longer open" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+        assert db.get(ServiceRequest, ids["request"]).status == request_status
+
+
+@pytest.mark.parametrize("status", [
+    QuoteStatus.ACCEPTED, QuoteStatus.REJECTED, QuoteStatus.WITHDRAWN,
+])
+@pytest.mark.parametrize("action", ["accept", "reject"])
+def test_non_pending_quote_cannot_be_decided_again(app, client, status, action):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"], status=status)
+    login(client, "one@example.com")
+    response = decision(client, ids["request"], quote_id, action)
+    assert response.status_code == 302
+    assert b"no longer pending" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, quote_id).status == status
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.OPEN
+
+
+def test_second_acceptance_attempt_is_stale_and_preserves_first_decision(app, client):
+    ids = seed(app)
+    first = add_quote(app, ids["request"], ids["provider"])
+    second = add_quote(app, ids["request"], ids["other_provider"])
+    login(client, "one@example.com")
+    assert decision(client, ids["request"], first, "accept").status_code == 302
+    stale = decision(client, ids["request"], second, "accept")
+    assert stale.status_code == 302
+    assert b"no longer open" in client.get(stale.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, first).status == QuoteStatus.ACCEPTED
+        assert db.get(Quote, second).status == QuoteStatus.REJECTED
+
+
+def test_provider_cannot_withdraw_after_request_closes(app, client):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    with Session(app.extensions["db_engine"]) as db:
+        db.get(ServiceRequest, ids["request"]).status = ServiceRequestStatus.ACCEPTED
+        db.commit()
+    login(client, "provider1@example.com")
+    detail = client.get(f"/provider/quotes/{quote_id}")
+    assert b"Withdraw quote" not in detail.data
+    response = client.post(
+        f"/provider/quotes/{quote_id}/withdraw",
+        data={"csrf_token": token(client, "/dashboard")},
+    )
+    assert response.status_code == 409
+    assert b"only while the request is open" in response.data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+
+
+def test_unknown_or_mismatched_quote_decision_returns_404(app, client):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    with Session(app.extensions["db_engine"]) as db:
+        other = ServiceRequest(
+            customer_id=ids["customer"], category_id=ids["category"],
+            title="Other job", description="Other work", location="South",
+        )
+        db.add(other)
+        db.commit()
+        other_id = other.id
+    login(client, "one@example.com")
+    csrf = token(client, "/dashboard")
+    assert client.post(f"/requests/99999/quotes/{quote_id}/accept", data={"csrf_token": csrf}).status_code == 404
+    assert client.post(f"/requests/{ids['request']}/quotes/99999/reject", data={"csrf_token": csrf}).status_code == 404
+    assert client.post(f"/requests/{other_id}/quotes/{quote_id}/accept", data={"csrf_token": csrf}).status_code == 404
+
+
+def test_quote_decisions_are_post_only_and_require_csrf(app, client):
+    ids = seed(app)
+    quote_id = add_quote(app, ids["request"], ids["provider"])
+    login(client, "one@example.com")
+    for action in ("accept", "reject"):
+        path = f"/requests/{ids['request']}/quotes/{quote_id}/{action}"
+        assert client.get(path).status_code == 405
+        assert client.post(path).status_code == 400
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, quote_id).status == QuoteStatus.PENDING
+
+
+def test_acceptance_rolls_back_if_second_update_fails(app, client, monkeypatch):
+    ids = seed(app)
+    first = add_quote(app, ids["request"], ids["provider"])
+    second = add_quote(app, ids["request"], ids["other_provider"])
+    login(client, "one@example.com")
+    csrf = token(client, f"/requests/{ids['request']}/quotes")
+    original_execute = Session.execute
+    quote_updates = 0
+
+    def fail_second_quote_update(db, statement, *args, **kwargs):
+        nonlocal quote_updates
+        if str(statement).startswith("UPDATE quotes"):
+            quote_updates += 1
+            if quote_updates == 2:
+                raise SQLAlchemyError("simulated database failure")
+        return original_execute(db, statement, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "execute", fail_second_quote_update)
+    response = client.post(
+        f"/requests/{ids['request']}/quotes/{first}/accept",
+        data={"csrf_token": csrf},
+    )
+    assert response.status_code == 302
+    assert b"No changes were saved" in client.get(response.location).data
+    with Session(app.extensions["db_engine"]) as db:
+        assert db.get(Quote, first).status == QuoteStatus.PENDING
+        assert db.get(Quote, second).status == QuoteStatus.PENDING
+        assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.OPEN

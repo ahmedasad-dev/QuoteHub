@@ -17,6 +17,18 @@
             <p>Amount: {{ quote.amount }} · Status: {{ quote.status.value|title }}</p>
             {% if quote.message %}<p class="profile-description">{{ quote.message }}</p>{% endif %}
             <p class="request-meta">Submitted {{ quote.created_at.strftime('%Y-%m-%d %H:%M UTC') }}</p>
+            {% if item.status.value == 'OPEN' and quote.status.value == 'PENDING' %}
+              <div class="request-actions">
+                <form method="post" action="{{ url_for('quotes.accept_quote', request_id=item.id, quote_id=quote.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="primary-button" type="submit">Accept quote</button>
+                </form>
+                <form method="post" action="{{ url_for('quotes.reject_quote', request_id=item.id, quote_id=quote.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="secondary-button" type="submit">Reject quote</button>
+                </form>
+              </div>
+            {% endif %}
           </li>
         {% endfor %}
       </ul>

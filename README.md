@@ -128,6 +128,60 @@ docker compose run --rm -v $versionsMount migrate alembic revision --autogenerat
 
 Review the generated migration, rebuild the image, and use the one-off `migrate` service to apply it. Container starts do not apply migrations automatically. For production, provide the runtime URL only to web workers, the migration URL only to a controlled migration job, and bootstrap administrator credentials only to database provisioning. Manage all three passwords outside source control. Provision roles and grants on the target dedicated database before switching web traffic to the runtime URL; run migrations with the migration URL during deployment. The Compose setup is a local example, not a production credential manager.
 
+## PostgreSQL backup and restore runbook
+
+This is an **opt-in logical backup**, not a scheduled backup system. The `backup` job uses the migration role because it can read every QuoteHub table, ID sequence, and `alembic_version`; the runtime role cannot read `alembic_version`. The migration role also has schema rights, so restrict who can run the job and who can access its credentials. A separately provisioned read-only backup role would be preferable for a larger production deployment. The `restore` job uses the bootstrap administrator because creating an isolated database requires cluster-level permission. Neither job is started by ordinary `docker compose up`.
+
+Set `QUOTEHUB_BACKUP_DIR` in the private `.env` file to a host directory. The default `./backups` is intended for local development. For production, use a protected **absolute host path outside the project and database volume**, with enough free space, then create the directory before running the job. The directory is bind-mounted at `/backups`; backup files are written there, not inside the database container or its data volume. The scripts set a restrictive file mode on Unix systems; also restrict the host directory (for example, mode `0700` on Linux or an appropriate private Windows ACL).
+
+Create a backup from the running local database:
+
+```powershell
+New-Item -ItemType Directory -Force -Path ./backups | Out-Null # or your configured host path
+docker compose run --rm backup
+```
+
+The command creates a UTC-stamped `quotehub_<database>_<timestamp>_<suffix>.dump` custom-format archive and a matching `.dump.sha256` checksum file. It uses `pg_dump` with the migration role, validates that `pg_restore` can read the archive catalog, and leaves no finished archive when `pg_dump` fails. Check the job exit code, preserve the checksum beside the archive, and verify the checksum after transfer. The password is supplied through the one-off container environment, not a command-line argument or terminal output. Do not run `docker compose config` or other environment-printing commands in a shared log because they can reveal Compose secrets.
+
+### Restore rehearsal into a new database
+
+Choose an archive **you trust** and an unused database name beginning with `quotehub_restore_`. The restore job refuses other target names and refuses an existing database. It never drops a database, uses neither `--clean` nor `--create` in `pg_restore`, and never touches the working QuoteHub database. Check the archive's `.sha256` file before restoring. In PowerShell, for example:
+
+```powershell
+$archive = 'quotehub_quotehub_YYYYMMDDTHHMMSSZ_XXXXXX.dump' # replace with the actual filename
+$backupDir = './backups' # replace if QUOTEHUB_BACKUP_DIR differs
+$expected = (Get-Content (Join-Path $backupDir "$archive.sha256") -Raw).Split(' ')[0]
+$actual = (Get-FileHash (Join-Path $backupDir $archive) -Algorithm SHA256).Hash
+if ($actual -ne $expected) { throw 'Backup checksum mismatch' }
+docker compose run --rm -e QUOTEHUB_RESTORE_DB=quotehub_restore_rehearsal -e QUOTEHUB_RESTORE_FILE=$archive restore
+docker compose run --rm -e POSTGRES_DB=quotehub_restore_rehearsal db-roles
+```
+
+The restore job creates the empty target with `createdb` and loads the archive using `pg_restore --single-transaction --exit-on-error --no-owner --no-acl`. If restore fails, the **new** target remains for inspection; the script does not remove it. The subsequent `db-roles` command transfers restored QuoteHub objects to the migration role and reapplies runtime grants in that isolated target. It assumes the target is a dedicated QuoteHub database and uses the role passwords already configured in `.env`. Verify the target's `alembic_version`, table counts, representative records, sequence values, and application behavior before considering it usable. Do not point a running web instance at the rehearsal database without explicitly intending to do so.
+
+For a read-only comparison in local Compose, run the same query against each database. This checks the Alembic revision, a representative public category, row counts, and one sequence; add checks for other important records in your deployment:
+
+```powershell
+$verifySql = @'
+SELECT 'revision=' || version_num FROM alembic_version;
+SELECT 'sample_category=' || id || ':' || slug FROM categories ORDER BY id LIMIT 1;
+SELECT 'users=' || count(*) FROM users;
+SELECT 'provider_profiles=' || count(*) FROM provider_profiles;
+SELECT 'categories=' || count(*) FROM categories;
+SELECT 'service_requests=' || count(*) FROM service_requests;
+SELECT 'quotes=' || count(*) FROM quotes;
+SELECT 'categories_sequence=' || last_value FROM categories_id_seq;
+'@
+$verifySql | docker compose exec -T db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At'
+$verifySql | docker compose exec -T -e QUOTEHUB_RESTORE_DB=quotehub_restore_rehearsal db sh -c 'psql -U "$POSTGRES_USER" -d "$QUOTEHUB_RESTORE_DB" -At'
+```
+
+If production traffic is writing while you compare, the live row counts may have changed since the backup snapshot. Compare the restored data with the backup's creation time and perform a separate application check against the isolated target. The restored rehearsal database remains until a database administrator explicitly retires it; this runbook never removes it.
+
+A logical `pg_dump` archive contains this database's schema, rows, sequence values, and `alembic_version` table. With `--no-owner --no-acl`, it deliberately omits original ownership and grants; `db-roles` reapplies QuoteHub's current policy. It does **not** include PostgreSQL roles/passwords, tablespaces, cluster configuration, other databases, Redis data, application secrets, or any external files. Record those separately. PostgreSQL documents the [single-database scope of `pg_dump`](https://www.postgresql.org/docs/17/app-pgdump.html) and the [cluster globals handled by `pg_dumpall`](https://www.postgresql.org/docs/17/app-pg-dumpall.html).
+
+Treat archives as sensitive customer data. Keep backup directory access limited, encrypt stored and transferred copies where appropriate, copy backups off-host, define retention from your recovery needs, and periodically test a restore. The repository does not schedule backups or delete old archives. A production runbook should record who runs the job, where encrypted off-host copies live, how long they are retained, and the expected recovery time. Use matching or compatible PostgreSQL client tools and test the exact production restore path before depending on it.
+
 Run all tests after installing development dependencies:
 
 ```powershell
@@ -167,6 +221,8 @@ Dockerfile          Flask container
 compose.yaml        Web and PostgreSQL services
 scripts/provision_db_roles.py  One-off role/grant setup for dedicated PostgreSQL
 scripts/verify_db_privileges.py  Rolled-back PostgreSQL privilege checks
+scripts/backup.sh   One-off logical backup job
+scripts/restore.sh  Guarded isolated-database restore job
 .env.example        Local configuration example
 ```
 

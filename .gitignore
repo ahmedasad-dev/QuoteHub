@@ -1,6 +1,11 @@
 .env
 .env.*
 !.env.example
+backups/
+restore-artifacts/
+*.dump
+*.dump.sha256
+*.partial
 .venv/
 .tmp/
 venv/

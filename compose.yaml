@@ -58,5 +58,39 @@ services:
       db:
         condition: service_healthy
 
+  backup:
+    image: postgres:17-alpine
+    profiles: [ops]
+    entrypoint: ["/bin/sh", "/scripts/backup.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: ${MIGRATION_DB_USER:-quotehub_migrator}
+      PGPASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}
+      PGDATABASE: ${POSTGRES_DB:-quotehub}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${QUOTEHUB_BACKUP_DIR:-./backups}:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+
+  restore:
+    image: postgres:17-alpine
+    profiles: [ops]
+    entrypoint: ["/bin/sh", "/scripts/restore.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-quotehub}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      QUOTEHUB_SOURCE_DB: ${POSTGRES_DB:-quotehub}
+      QUOTEHUB_RESTORE_DB: ${QUOTEHUB_RESTORE_DB:-}
+      QUOTEHUB_RESTORE_FILE: ${QUOTEHUB_RESTORE_FILE:-}
+    volumes:
+      - ./scripts:/scripts:ro
+      - ${QUOTEHUB_BACKUP_DIR:-./backups}:/backups:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   postgres_data:

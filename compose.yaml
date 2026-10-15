@@ -4,7 +4,7 @@ services:
     ports:
       - "127.0.0.1:${WEB_PORT:-8000}:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-quotehub}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/${POSTGRES_DB:-quotehub}
+      DATABASE_URL: postgresql+psycopg://${RUNTIME_DB_USER:-quotehub_app}:${RUNTIME_DB_PASSWORD:?Set RUNTIME_DB_PASSWORD in .env}@db:5432/${POSTGRES_DB:-quotehub}
       FLASK_DEBUG: ${FLASK_DEBUG:-0}
       QUOTEHUB_ENV: ${QUOTEHUB_ENV:-development}
       SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
@@ -31,6 +31,32 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  db-roles:
+    build: .
+    profiles: [setup]
+    command: ["python", "scripts/provision_db_roles.py"]
+    environment:
+      DB_ADMIN_USER: ${POSTGRES_USER:-quotehub}
+      DB_ADMIN_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-quotehub}
+      RUNTIME_DB_USER: ${RUNTIME_DB_USER:-quotehub_app}
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?Set RUNTIME_DB_PASSWORD in .env}
+      MIGRATION_DB_USER: ${MIGRATION_DB_USER:-quotehub_migrator}
+      MIGRATION_DB_PASSWORD: ${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate:
+    build: .
+    profiles: [setup]
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      MIGRATION_DATABASE_URL: postgresql+psycopg://${MIGRATION_DB_USER:-quotehub_migrator}:${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}@db:5432/${POSTGRES_DB:-quotehub}
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   postgres_data:

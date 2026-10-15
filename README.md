@@ -9,12 +9,16 @@ QuoteHub has a small Flask foundation, a Jinja2 homepage, a PostgreSQL-backed he
 
 ## Local development
 
-Copy `.env.example` to `.env`, then set a local development database password and a random `SECRET_KEY` in `.env`. Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`. Compose reads this file automatically. Keep `.env` private.
+For a new setup, copy `.env.example` to `.env`. If `.env` already exists, keep it and add the new role variables instead of copying over it. Set three **different**, URL-safe local database passwords (`POSTGRES_PASSWORD`, `RUNTIME_DB_PASSWORD`, `MIGRATION_DB_PASSWORD`) and a random `SECRET_KEY` in `.env`. Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`. Compose reads this file automatically. Keep `.env` private. On an existing database volume, keep its original `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; changing those Compose values does not update PostgreSQL's existing roles or database.
 
 ```powershell
-Copy-Item .env.example .env
-docker compose up --build -d
-docker compose exec web alembic upgrade head
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+# Edit .env privately before continuing.
+docker compose build
+docker compose up -d db
+docker compose run --rm db-roles
+docker compose run --rm migrate
+docker compose up -d web
 ```
 
 Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead. Compose binds the local web port to `127.0.0.1`, so it is available on this machine without exposing Gunicorn on every host interface. Leave `QUOTEHUB_ENV=development` and `TRUSTED_PROXY_HOPS=0` for local HTTP use.
@@ -61,6 +65,7 @@ Set these application variables in the deployment environment:
 | --- | --- |
 | `QUOTEHUB_ENV` | `production` (required to activate production checks) |
 | `DATABASE_URL` | A private PostgreSQL connection URL |
+| `MIGRATION_DATABASE_URL` | A different, private PostgreSQL URL used only by Alembic/deployment jobs |
 | `SECRET_KEY` | A private, random value of at least 32 bytes; never reuse the example or a test key |
 | `FLASK_DEBUG` | `0`; production startup rejects debug mode |
 | `SESSION_COOKIE_SECURE` | Leave unset/blank to default to `1` in production, or set `1` explicitly; `0` is rejected |
@@ -93,23 +98,35 @@ Healthy response: HTTP 200 with `{"database":"ok","status":"ok"}`. If PostgreSQL
 
 Inspect service status and logs with `docker compose ps` and `docker compose logs web db`.
 
-## Database migrations
+## Database roles and migrations
 
-The five database tables are managed by Alembic. Phase 9B uses the existing schema, so it needs no new migration. Apply committed revisions after starting or updating the containers:
+The database uses three distinct login roles. `POSTGRES_USER` is the bootstrap administrator and must stay out of the normal web container. `RUNTIME_DB_USER` has `CONNECT`, schema `USAGE`, row `SELECT`/`INSERT`/`UPDATE`/`DELETE` on the five application tables, and `USAGE` on their ID sequences. It cannot create schemas or tables and has no rights on `alembic_version`. `MIGRATION_DB_USER` has schema `CREATE` and owns QuoteHub tables, ID sequences, and `alembic_version`, so Alembic can change the schema. Neither application role is a superuser. The one-off `db-roles` service uses the bootstrap administrator only to create/update these roles and grants; it is not started by normal `docker compose up`.
+
+For a **new local volume**, follow the Local development commands above. For an **existing local volume**, preserve the original `POSTGRES_*` values in `.env`, add the two new role names and passwords, then run the same `db-roles` and `migrate` commands before restarting `web`. The setup script transfers ownership of the known QuoteHub tables and sequences to the migration role without deleting rows; it does not reset the volume. It refuses unexpected tables in the dedicated `public` schema and refuses preexisting elevated or member roles, so inspect a customized database manually before proceeding. It also removes public schema/database creation privileges, which assumes this database is dedicated to QuoteHub. Repeat `db-roles` after a migration that adds a table or sequence, updating its `APP_TABLES` list first, so the runtime grants cover the new objects.
+
+Alembic **requires** `MIGRATION_DATABASE_URL` and does not fall back to the runtime `DATABASE_URL`. Compose supplies it only to the one-off `migrate` service. Check and apply committed revisions with:
 
 ```powershell
-docker compose exec web alembic upgrade head
-docker compose exec web alembic current
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic upgrade head
+docker compose run --rm migrate alembic check
+```
+
+After role setup, optionally run the PostgreSQL privilege checks. They test runtime CRUD and denied schema changes, and migration schema creation/alteration. Test row and table changes are rolled back; the category ID sequence may advance:
+
+```powershell
+docker compose run --rm web python scripts/verify_db_privileges.py runtime
+docker compose run --rm migrate python scripts/verify_db_privileges.py migration
 ```
 
 For future schema changes, edit the models, then generate a revision from the running Compose environment. This PowerShell command mounts the versions directory so the new file is saved in the project:
 
 ```powershell
 $versionsMount = (Join-Path (Get-Location).Path 'migrations\versions') + ':/app/migrations/versions'
-docker compose run --rm -v $versionsMount web alembic revision --autogenerate -m "description"
+docker compose run --rm -v $versionsMount migrate alembic revision --autogenerate -m "description"
 ```
 
-Review the generated migration, rebuild the web image, and run `docker compose exec web alembic upgrade head`. Container builds copy committed revisions; they do not apply them automatically.
+Review the generated migration, rebuild the image, and use the one-off `migrate` service to apply it. Container starts do not apply migrations automatically. For production, provide the runtime URL only to web workers, the migration URL only to a controlled migration job, and bootstrap administrator credentials only to database provisioning. Manage all three passwords outside source control. Provision roles and grants on the target dedicated database before switching web traffic to the runtime URL; run migrations with the migration URL during deployment. The Compose setup is a local example, not a production credential manager.
 
 Run all tests after installing development dependencies:
 
@@ -148,7 +165,9 @@ migrations/         Database revisions
 tests/              Model and authentication tests
 Dockerfile          Flask container
 compose.yaml        Web and PostgreSQL services
+scripts/provision_db_roles.py  One-off role/grant setup for dedicated PostgreSQL
+scripts/verify_db_privileges.py  Rolled-back PostgreSQL privilege checks
 .env.example        Local configuration example
 ```
 
-The app reads `DATABASE_URL` and `SECRET_KEY` from its environment. Compose builds the database URL from the PostgreSQL variables in `.env`, so the database name, user, and password stay aligned. Use URL-safe characters in the development password because Compose places it inside the URL. To run outside Compose, install `requirements.txt`, set both variables, and start the app with `flask --app quotehub run`.
+The app reads `DATABASE_URL` and `SECRET_KEY` from its environment. Compose builds the web URL from `RUNTIME_DB_*` and the migration URL from `MIGRATION_DB_*`; the `POSTGRES_*` credentials are used for database bootstrap and one-off role setup. Use URL-safe characters in local role passwords because Compose places them inside URLs. Outside Compose, set `DATABASE_URL` for Flask and `MIGRATION_DATABASE_URL` for Alembic separately.

@@ -44,4 +44,7 @@ class Config:
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = "Lax"
     TRUSTED_PROXY_HOPS = os.environ.get("TRUSTED_PROXY_HOPS", "0")
+    AUTH_LOGIN_RATE_LIMIT = os.environ.get("AUTH_LOGIN_RATE_LIMIT", "20 per minute")
+    AUTH_REGISTER_RATE_LIMIT = os.environ.get("AUTH_REGISTER_RATE_LIMIT", "10 per hour")
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
     PERMANENT_SESSION_LIFETIME = timedelta(hours=12)

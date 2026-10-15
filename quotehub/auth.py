@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .dashboard import customer_dashboard_data, provider_dashboard_data
+from .limiting import limiter, login_limit, register_limit
 from .models import User, UserRole, normalize_email_address
 
 
@@ -38,6 +39,7 @@ def form_error(template: str, message: str, status: int = 400):
 
 
 @auth.route("/register", methods=["GET", "POST"])
+@limiter.limit(register_limit, methods=["POST"])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("auth.dashboard"))
@@ -84,6 +86,7 @@ def register():
 
 
 @auth.route("/login", methods=["GET", "POST"])
+@limiter.limit(login_limit, methods=["POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("auth.dashboard"))

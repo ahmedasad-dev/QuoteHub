@@ -65,8 +65,19 @@ Set these application variables in the deployment environment:
 | `FLASK_DEBUG` | `0`; production startup rejects debug mode |
 | `SESSION_COOKIE_SECURE` | Leave unset/blank to default to `1` in production, or set `1` explicitly; `0` is rejected |
 | `TRUSTED_PROXY_HOPS` | `0` by default; set to the exact number of trusted proxy hops only after isolating Gunicorn |
+| `AUTH_LOGIN_RATE_LIMIT` | Defaults to `20 per minute` per client IP |
+| `AUTH_REGISTER_RATE_LIMIT` | Defaults to `10 per hour` per client IP |
+| `RATELIMIT_STORAGE_URI` | A shared Redis URL; `memory://` is rejected in production |
 
 `SESSION_COOKIE_HTTPONLY` stays enabled and `SESSION_COOKIE_SAMESITE` stays `Lax`. Production startup rejects insecure overrides. Secure cookies are sent by browsers only over HTTPS, so authenticated browsing through an HTTP-only endpoint will not work in production mode. The app requires a secret key in both modes and rejects a production key shorter than 32 bytes; generate it with a cryptographically secure source and manage it outside the repository. A key change invalidates existing sessions.
+
+### Login and registration limits
+
+POST `/login` is limited to 20 attempts per minute per client IP; POST `/register` is limited to 10 attempts per hour per client IP. Both successful and failed submissions count, while GET pages do not. These initial limits can be changed with `AUTH_LOGIN_RATE_LIMIT` and `AUTH_REGISTER_RATE_LIMIT` using values such as `20 per minute`. A limit breach returns HTTP 429 with a generic message and a `Retry-After` header. Limits expire automatically; there is no permanent account lockout. People sharing an IP share its allowance, so monitor legitimate traffic before tightening these values.
+
+Local development uses `RATELIMIT_STORAGE_URI=memory://`. Each Gunicorn worker has a separate counter, and counters reset when workers restart; this is suitable only for local development. In production, QuoteHub refuses to start with in-memory storage. Set `RATELIMIT_STORAGE_URI` to a shared `redis://` or `rediss://` URL accessible to every web worker and instance. This requires a separately operated Redis service, network access, credentials, capacity monitoring, and an availability plan; the provided Compose file does not create Redis. Keep its URL private. Use TLS for Redis traffic that leaves a trusted private network.
+
+If shared rate-limit storage fails, authentication POST requests fail closed rather than continuing without limits: the app logs the error and returns HTTP 503 with a generic message. There is no in-memory fallback. Storage must be available before public traffic is sent to the app. The limiter keys on Flask's client IP; forwarded IPs are considered only when `TRUSTED_PROXY_HOPS` is explicitly configured as described below. The application never reads `X-Forwarded-For` directly.
 
 Proxy trust is **off** by default. With exactly one trusted reverse proxy, set `TRUSTED_PROXY_HOPS=1`; use a different count only if that many trusted proxies are actually in the request path. The app then trusts `X-Forwarded-For` and `X-Forwarded-Proto` from those hops. It does not trust forwarded host, port, or URL prefix. The outermost trusted proxy must remove or overwrite client-supplied forwarded headers. Never enable proxy trust while clients can connect directly to Gunicorn: a client could forge its IP address or HTTPS scheme. Keep network access to Gunicorn private even when using these settings.
 
@@ -122,6 +133,7 @@ quotehub/
   __init__.py       Application factory and routes
   admin_cli.py      Interactive admin account creation command
   auth.py           Registration, login, logout, and role checks
+  limiting.py       Public authentication rate limiter
   categories.py     Public listing, admin management, and seed command
   config.py         Environment-based configuration
   models.py         SQLAlchemy models and relationships

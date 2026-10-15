@@ -17,6 +17,8 @@ def settings(**overrides):
         "TRUSTED_PROXY_HOPS": "0",
     }
     values.update(overrides)
+    if values["QUOTEHUB_ENV"] == "production":
+        values.setdefault("RATELIMIT_STORAGE_URI", "redis://localhost:6379/0")
     return values
 
 

@@ -23,6 +23,12 @@ docker compose up -d web
 
 Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead. Compose binds the local web port to `127.0.0.1`, so it is available on this machine without exposing Gunicorn on every host interface. Leave `QUOTEHUB_ENV=development` and `TRUSTED_PROXY_HOPS=0` for local HTTP use.
 
+### Connect with DBeaver locally
+
+Compose publishes PostgreSQL only on `127.0.0.1`, using host port `DB_PORT` (default `5433`). In DBeaver, create a PostgreSQL connection with **Host** `localhost`, **Port** `5433` (or your `DB_PORT`), and **Database** `quotehub` (or your `POSTGRES_DB`). For ordinary browsing, use **Username** from `RUNTIME_DB_USER` and **Password** from `RUNTIME_DB_PASSWORD` in your private `.env`. Click **Test Connection**, then **Finish**. The runtime role can read and change application rows but cannot alter the schema or read `alembic_version`; take care with DBeaver's data-editing controls. Use a separate read-only role if you need strictly read-only access. Do not use `POSTGRES_USER` for routine browsing.
+
+If Compose was already running before `DB_PORT` was added, run `docker compose up -d db` to recreate only the database container with the new port mapping; the named `postgres_data` volume remains intact. Check `docker compose ps` for `127.0.0.1:5433->5432/tcp`. If port `5433` is occupied, set another unused `DB_PORT` in `.env` and use it in DBeaver. This mapping is for local development; do not publish PostgreSQL publicly in production.
+
 Register a Customer or Provider account at `/register`, then use `/login` and the POST logout button in the navigation. Both account types reach `/dashboard`; role-specific placeholder pages are `/customer` and `/provider`. `/admin` is reserved for accounts created outside public registration.
 
 The customer dashboard shows counts of owned requests by status and the six most recent owned requests, including a count of all quotes on each. The provider dashboard shows open requests the provider can still quote (excluding their own requests and requests they have already quoted), pending and accepted quotes, and completed jobs. Completed jobs require that provider's accepted quote on a COMPLETED request. The accepted quote total includes completed jobs. The six most recent quotes link to their details. Admin dashboard links remain unchanged.

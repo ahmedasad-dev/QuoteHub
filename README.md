@@ -7,7 +7,7 @@ QuoteHub has a small Flask foundation, a Jinja2 homepage, a PostgreSQL-backed he
 - Docker with the Compose plugin
 - Git
 
-## Start
+## Local development
 
 Copy `.env.example` to `.env`, then set a local development database password and a random `SECRET_KEY` in `.env`. Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`. Compose reads this file automatically. Keep `.env` private.
 
@@ -17,7 +17,7 @@ docker compose up --build -d
 docker compose exec web alembic upgrade head
 ```
 
-Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead.
+Open <http://localhost:8000/>. If you changed `WEB_PORT`, use that port instead. Compose binds the local web port to `127.0.0.1`, so it is available on this machine without exposing Gunicorn on every host interface. Leave `QUOTEHUB_ENV=development` and `TRUSTED_PROXY_HOPS=0` for local HTTP use.
 
 Register a Customer or Provider account at `/register`, then use `/login` and the POST logout button in the navigation. Both account types reach `/dashboard`; role-specific placeholder pages are `/customer` and `/provider`. `/admin` is reserved for accounts created outside public registration.
 
@@ -49,7 +49,26 @@ docker compose exec web flask --app quotehub seed-categories
 
 You can run this command again. It skips categories matching a starter name or slug and never edits existing rows. The current schema has no inactive category state, so `/categories` displays every category.
 
-CSRF tokens protect registration, login, and logout forms. Cookies are HTTP-only and SameSite=Lax. `SESSION_COOKIE_SECURE=0` supports local HTTP; set it to `1` when serving over HTTPS. Keep `SECRET_KEY` stable and private so existing sessions remain valid.
+CSRF tokens protect state-changing forms. Session cookies are HTTP-only and SameSite=Lax. In development, a blank `SESSION_COOKIE_SECURE` defaults to `0` so local HTTP works. Keep `SECRET_KEY` stable and private so existing sessions remain valid.
+
+## Production configuration behind HTTPS
+
+The included Compose setup is for local development; it does not provide TLS or a public production deployment. For public use, terminate HTTPS at a properly configured reverse proxy and allow only that proxy to reach Gunicorn. Do not expose Gunicorn's port directly to the public internet. The proxy must forward requests over a private connection and set the original scheme; configure HTTP-to-HTTPS redirection and certificates at the proxy. No TLS endpoint is configured or verified by this repository.
+
+Set these application variables in the deployment environment:
+
+| Variable | Production value |
+| --- | --- |
+| `QUOTEHUB_ENV` | `production` (required to activate production checks) |
+| `DATABASE_URL` | A private PostgreSQL connection URL |
+| `SECRET_KEY` | A private, random value of at least 32 bytes; never reuse the example or a test key |
+| `FLASK_DEBUG` | `0`; production startup rejects debug mode |
+| `SESSION_COOKIE_SECURE` | Leave unset/blank to default to `1` in production, or set `1` explicitly; `0` is rejected |
+| `TRUSTED_PROXY_HOPS` | `0` by default; set to the exact number of trusted proxy hops only after isolating Gunicorn |
+
+`SESSION_COOKIE_HTTPONLY` stays enabled and `SESSION_COOKIE_SAMESITE` stays `Lax`. Production startup rejects insecure overrides. Secure cookies are sent by browsers only over HTTPS, so authenticated browsing through an HTTP-only endpoint will not work in production mode. The app requires a secret key in both modes and rejects a production key shorter than 32 bytes; generate it with a cryptographically secure source and manage it outside the repository. A key change invalidates existing sessions.
+
+Proxy trust is **off** by default. With exactly one trusted reverse proxy, set `TRUSTED_PROXY_HOPS=1`; use a different count only if that many trusted proxies are actually in the request path. The app then trusts `X-Forwarded-For` and `X-Forwarded-Proto` from those hops. It does not trust forwarded host, port, or URL prefix. The outermost trusted proxy must remove or overwrite client-supplied forwarded headers. Never enable proxy trust while clients can connect directly to Gunicorn: a client could forge its IP address or HTTPS scheme. Keep network access to Gunicorn private even when using these settings.
 
 ## Check health
 

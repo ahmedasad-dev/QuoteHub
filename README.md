@@ -79,6 +79,8 @@ Set these application variables in the deployment environment:
 | `AUTH_LOGIN_RATE_LIMIT` | Defaults to `20 per minute` per client IP |
 | `AUTH_REGISTER_RATE_LIMIT` | Defaults to `10 per hour` per client IP |
 | `RATELIMIT_STORAGE_URI` | A shared Redis URL; `memory://` is rejected in production |
+| `MAX_CONTENT_LENGTH` | Maximum request body in bytes; defaults to `131072` (128 KiB) |
+| `HSTS_MAX_AGE` | `0` by default; enable only after HTTPS and trusted proxy validation |
 
 `SESSION_COOKIE_HTTPONLY` stays enabled and `SESSION_COOKIE_SAMESITE` stays `Lax`. Production startup rejects insecure overrides. Secure cookies are sent by browsers only over HTTPS, so authenticated browsing through an HTTP-only endpoint will not work in production mode. The app requires a secret key in both modes and rejects a production key shorter than 32 bytes; generate it with a cryptographically secure source and manage it outside the repository. A key change invalidates existing sessions.
 
@@ -91,6 +93,14 @@ Local development uses `RATELIMIT_STORAGE_URI=memory://`. Each Gunicorn worker h
 If shared rate-limit storage fails, authentication POST requests fail closed rather than continuing without limits: the app logs the error and returns HTTP 503 with a generic message. There is no in-memory fallback. Storage must be available before public traffic is sent to the app. The limiter keys on Flask's client IP; forwarded IPs are considered only when `TRUSTED_PROXY_HOPS` is explicitly configured as described below. The application never reads `X-Forwarded-For` directly.
 
 Proxy trust is **off** by default. With exactly one trusted reverse proxy, set `TRUSTED_PROXY_HOPS=1`; use a different count only if that many trusted proxies are actually in the request path. The app then trusts `X-Forwarded-For` and `X-Forwarded-Proto` from those hops. It does not trust forwarded host, port, or URL prefix. The outermost trusted proxy must remove or overwrite client-supplied forwarded headers. Never enable proxy trust while clients can connect directly to Gunicorn: a client could forge its IP address or HTTPS scheme. Keep network access to Gunicorn private even when using these settings.
+
+### Browser headers and request size
+
+QuoteHub sends `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`, and a restrictive `Permissions-Policy` on application responses, including handled errors. Its Content Security Policy permits same-origin styles, images, fonts, connections, and form submissions, blocks scripts, plugins, and framing, and uses no `unsafe-inline` exception. Current templates have no inline scripts or styles and load only local CSS. If a later feature needs JavaScript or external assets, review the policy and use a narrowly scoped source, nonce, or hash instead of broadly disabling CSP.
+
+`MAX_CONTENT_LENGTH` defaults to `131072` bytes (128 KiB) for the current text-only forms. Oversized submissions receive HTTP 413 with a simple error page. The value must be between 1024 bytes and 10 MiB; raise it only when a real form requires it, and align any reverse-proxy body-size limit. This is a request-body limit, not a per-field rule or a substitute for form validation.
+
+HSTS is **off by default** in both development and production. Only after HTTPS termination, HTTP-to-HTTPS redirection, proxy isolation, and forwarded-protocol handling have been verified should an operator set `TRUSTED_PROXY_HOPS` to the exact trusted count and `HSTS_MAX_AGE=86400` as an initial one-day policy. The application rejects nonzero HSTS in development or with zero trusted hops, and sends `Strict-Transport-Security` only on requests Flask recognizes as HTTPS. It does not add `includeSubDomains` or `preload`. Browser HSTS persists beyond a request, so increase the duration only after observing the deployed TLS path; the reverse proxy may instead own this header. Local Compose does not configure or verify TLS.
 
 ## Check health
 

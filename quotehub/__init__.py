@@ -15,7 +15,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from .admin_cli import create_admin
 from .auth import auth
 from .categories import categories, seed_categories
-from .config import Config, boolean_setting, proxy_hops
+from .config import Config, boolean_setting, bounded_integer_setting, proxy_hops
 from .limiting import configured_limit, limiter
 from .models import User
 from .provider_profiles import profiles
@@ -39,6 +39,15 @@ def create_app(test_config=None):
     )
     hops = proxy_hops(app.config["TRUSTED_PROXY_HOPS"])
     app.config["TRUSTED_PROXY_HOPS"] = hops
+    app.config["MAX_CONTENT_LENGTH"] = bounded_integer_setting(
+        app.config["MAX_CONTENT_LENGTH"], "MAX_CONTENT_LENGTH", minimum=1024, maximum=10485760
+    )
+    hsts_max_age = bounded_integer_setting(
+        app.config["HSTS_MAX_AGE"], "HSTS_MAX_AGE", minimum=0, maximum=31536000
+    )
+    app.config["HSTS_MAX_AGE"] = hsts_max_age
+    if hsts_max_age and (not production or not hops):
+        raise RuntimeError("HSTS_MAX_AGE requires production and trusted HTTPS proxy hops.")
 
     if not app.config["DATABASE_URL"]:
         raise RuntimeError("DATABASE_URL must be set")
@@ -97,6 +106,32 @@ def create_app(test_config=None):
     app.register_blueprint(quotes)
     app.cli.add_command(create_admin)
     app.cli.add_command(seed_categories)
+
+    @app.after_request
+    def security_headers(response):
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'none'; style-src 'self'; "
+            "img-src 'self'; font-src 'self'; connect-src 'self'; "
+            "form-action 'self'; base-uri 'self'; object-src 'none'; "
+            "frame-ancestors 'none'"
+        )
+        if production and hsts_max_age and request.is_secure:
+            response.headers["Strict-Transport-Security"] = f"max-age={hsts_max_age}"
+        return response
+
+    @app.errorhandler(413)
+    def request_too_large(_error):
+        return render_template(
+            "error.html",
+            title="Request too large",
+            message="Your submission is too large. Please shorten it and try again.",
+        ), 413
 
     @app.errorhandler(RateLimitExceeded)
     def auth_rate_limited(_error):

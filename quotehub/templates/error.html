@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · QuoteHub{% endblock %}
+{% block content %}
+  <main class="content" id="main-content">
+    <h1 class="page-title">{{ title }}</h1>
+    <p class="page-intro">{{ message }}</p>
+    <a class="text-link" href="{{ url_for('home') }}">Return home</a>
+  </main>
+{% endblock %}

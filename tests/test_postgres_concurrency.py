@@ -9,7 +9,10 @@ import time
 from urllib.parse import urlsplit
 
 import pytest
-from sqlalchemy import event, func, select, text
+from alembic import command
+from alembic.config import Config
+from alembic.runtime.migration import MigrationContext
+from sqlalchemy import event, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from werkzeug.security import generate_password_hash
@@ -48,10 +51,12 @@ def postgres_url():
         pytest.fail("The test URL must use the non-superuser quotehub_test login")
     if _database_name(url) != TEST_DATABASE_NAME:
         pytest.fail(f"Refusing test cleanup outside database {TEST_DATABASE_NAME!r}")
-    for variable in ("DATABASE_URL", "MIGRATION_DATABASE_URL"):
-        configured = os.environ.get(variable, "").strip()
-        if configured and _database_name(configured) == TEST_DATABASE_NAME:
-            pytest.fail(f"{variable} must not point to the dedicated test database")
+    runtime_url = os.environ.get("DATABASE_URL", "").strip()
+    if runtime_url and _database_name(runtime_url) == TEST_DATABASE_NAME:
+        pytest.fail("DATABASE_URL must not point to the dedicated test database")
+    migration_url = os.environ.get("MIGRATION_DATABASE_URL", "").strip()
+    if migration_url and migration_url != url:
+        pytest.fail("MIGRATION_DATABASE_URL must exactly match QUOTEHUB_TEST_DATABASE_URL during test runs")
     if os.environ.get("QUOTEHUB_ALLOW_TEST_DATABASE_RESET") != "1":
         pytest.fail("Set QUOTEHUB_ALLOW_TEST_DATABASE_RESET=1 to allow cleanup of the dedicated test database")
     return url
@@ -358,3 +363,85 @@ def test_acceptance_database_failure_rolls_back_all_updates_and_session_recovers
         assert db.get(ServiceRequest, ids["request"]).status == ServiceRequestStatus.ACCEPTED
         assert db.get(Quote, ids["quote_one"]).status == QuoteStatus.ACCEPTED
         assert db.get(Quote, ids["quote_two"]).status == QuoteStatus.REJECTED
+
+
+def test_postgres_partial_index_rejects_a_second_accepted_quote(app):
+    ids = seed(app, accepted=True)
+    engine = app.extensions["db_engine"]
+    indexes = {index["name"]: index for index in inspect(engine).get_indexes("quotes")}
+    assert "uq_quotes_one_accepted_per_request" in indexes
+
+    with Session(engine) as db:
+        db.add(Quote(
+            service_request_id=ids["request"], provider_id=ids["provider_two"],
+            amount=Decimal("120.00"), status=QuoteStatus.ACCEPTED,
+        ))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+        assert db.scalar(select(func.count(Quote.id)).where(
+            Quote.service_request_id == ids["request"], Quote.status == QuoteStatus.ACCEPTED
+        )) == 1
+
+
+def test_z_migration_preserves_data_and_refuses_legacy_conflicts(app, postgres_url, monkeypatch):
+    """Exercise the real Alembic upgrade from the current production revision."""
+    engine = app.extensions["db_engine"]
+    Base.metadata.drop_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+    monkeypatch.setenv("MIGRATION_DATABASE_URL", postgres_url)
+    alembic_config = Config("alembic.ini")
+    command.upgrade(alembic_config, "7c504dafc2a9")
+
+    with Session(engine) as db:
+        customer = User(
+            name="Legacy Customer", email="legacy-customer@example.test",
+            password_hash="test-hash", role=UserRole.CUSTOMER,
+        )
+        providers = [
+            User(name=f"Legacy Provider {number}", email=f"legacy-{number}@example.test",
+                 password_hash="test-hash", role=UserRole.PROVIDER)
+            for number in (1, 2)
+        ]
+        category = Category(name="Legacy Category", slug="legacy-category")
+        db.add_all([customer, *providers, category])
+        db.flush()
+        item = ServiceRequest(
+            customer_id=customer.id, category_id=category.id,
+            title="Existing request", description="Preserve this row", location="Central",
+            status=ServiceRequestStatus.ACCEPTED,
+        )
+        db.add(item)
+        db.flush()
+        quotes = [
+            Quote(
+                service_request_id=item.id, provider_id=provider.id,
+                amount=Decimal("80.00"), status=QuoteStatus.ACCEPTED,
+            )
+            for provider in providers
+        ]
+        db.add_all(quotes)
+        db.commit()
+        request_id = item.id
+        quote_ids = [quote.id for quote in quotes]
+
+    with pytest.raises(RuntimeError, match="Reconcile the existing quote statuses"):
+        command.upgrade(alembic_config, "head")
+    with engine.connect() as connection:
+        assert MigrationContext.configure(connection).get_current_revision() == "7c504dafc2a9"
+        assert connection.scalar(text("SELECT count(*) FROM quotes")) == 2
+
+    # Resolve the legacy conflict explicitly, retry the migration, and verify
+    # that its rows remain present after adding the partial unique index.
+    with Session(engine) as db:
+        db.get(Quote, quote_ids[1]).status = QuoteStatus.REJECTED
+        db.commit()
+    command.upgrade(alembic_config, "head")
+    with engine.connect() as connection:
+        assert MigrationContext.configure(connection).get_current_revision() == "b61f4e0a2c9d3"
+        assert connection.scalar(text("SELECT count(*) FROM service_requests WHERE id = :id"), {"id": request_id}) == 1
+        assert connection.scalar(text("SELECT count(*) FROM quotes WHERE service_request_id = :id"), {"id": request_id}) == 2
+    indexes = {index["name"] for index in inspect(engine).get_indexes("quotes")}
+    assert "uq_quotes_one_accepted_per_request" in indexes

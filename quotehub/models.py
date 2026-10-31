@@ -195,3 +195,13 @@ class Quote(Base):
 
     service_request: Mapped[ServiceRequest] = relationship(back_populates="quotes")
     provider: Mapped[User] = relationship(back_populates="quotes")
+
+
+# PostgreSQL is the production database. SQLite deliberately omits this index
+# so portable tests can construct legacy/inconsistent states for route guards.
+Index(
+    "uq_quotes_one_accepted_per_request",
+    Quote.service_request_id,
+    unique=True,
+    postgresql_where=Quote.status == QuoteStatus.ACCEPTED,
+).ddl_if(dialect="postgresql")

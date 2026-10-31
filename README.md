@@ -49,7 +49,9 @@ Providers can submit one quote per OPEN request from the browse page and manage 
 
 Customers can view quotes for their own requests from the request detail page. While a request is OPEN, its customer may reject an individual PENDING quote without closing the request, or accept one PENDING quote. Acceptance sets that quote to ACCEPTED, rejects the other PENDING quotes for the request, and sets the request to ACCEPTED in one transaction. Already rejected and withdrawn quotes keep their statuses. Once the request is no longer OPEN, no further quote decisions or provider withdrawals are allowed. Quote submission itself leaves the request OPEN.
 
-An OPEN request can be cancelled only by its customer. Cancellation sets its status to CANCELLED and keeps the request and any quotes. An ACCEPTED request can be marked COMPLETED by its customer or by the provider whose quote was accepted. Other providers cannot complete it. Completion requires exactly one accepted quote for the request and leaves quote statuses unchanged. ACCEPTED and COMPLETED requests cannot be cancelled through the ordinary cancellation action. Reviews, payments, and other later workflows are not included.
+PostgreSQL also enforces at most one ACCEPTED quote per request with a partial unique index. The migration checks for legacy duplicates before adding it and stops with the affected request ID if reconciliation is needed. A request's accepted status and its accepted quote are still updated together by the application transaction; enforcing that cross-table relationship with a database trigger is intentionally avoided.
+
+An OPEN request can be cancelled only by its customer. Cancellation sets its status to CANCELLED and keeps the request and quote rows with their existing statuses for history. A PENDING quote on a cancelled request stays PENDING, but it can no longer be withdrawn because quote withdrawal is allowed only while the request is OPEN; this is the current lifecycle policy. An ACCEPTED request can be marked COMPLETED by its customer or by the provider whose quote was accepted. Other providers cannot complete it. Completion requires exactly one accepted quote for the request and leaves quote statuses unchanged. ACCEPTED and COMPLETED requests cannot be cancelled through the ordinary cancellation action. Reviews, payments, and other later workflows are not included.
 
 To add the five starter categories, run:
 
@@ -220,6 +222,9 @@ docker compose --profile postgres-test up -d --wait postgres-test
 $env:QUOTEHUB_TEST_DATABASE_URL = "postgresql+psycopg://quotehub_test:$($env:QUOTEHUB_TEST_LOGIN_PASSWORD)@localhost:5434/quotehub_concurrency_test"
 $env:QUOTEHUB_ENABLE_POSTGRES_TESTS = "1"
 $env:QUOTEHUB_ALLOW_TEST_DATABASE_RESET = "1"
+$env:MIGRATION_DATABASE_URL = $env:QUOTEHUB_TEST_DATABASE_URL
+python -m alembic upgrade head
+python -m alembic check
 python -m pytest -m postgres -q
 ```
 

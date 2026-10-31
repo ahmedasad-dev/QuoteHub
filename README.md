@@ -205,6 +205,28 @@ python -m pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
+### PostgreSQL concurrency integration tests
+
+The ordinary suite uses SQLite for fast route and model coverage. The tests marked `postgres` exercise real PostgreSQL row locks, unique constraints, transaction rollback, and SQLAlchemy recovery after an integrity error. They are **opt-in** and are skipped unless the explicit opt-in variables below are set.
+
+The Compose service `postgres-test` is separate from the working `db` service. It uses the fixed database name `quotehub_concurrency_test`, a separate loopback port (default `5434`), and temporary `tmpfs` storage. It does not mount or use `postgres_data`. The test fixture only accepts that database name, a local host, and the non-superuser test login; it refuses a URL matching the configured runtime or migration database and requires an explicit cleanup acknowledgement. The test setup recreates only the schema in that dedicated test database, so never point it at a working, staging, or production database.
+
+Start the disposable database from PowerShell with separate private, URL-safe test-only passwords for its one-time bootstrap superuser and the non-superuser test database owner. Do not reuse any QuoteHub database credential:
+
+```powershell
+$env:QUOTEHUB_TEST_POSTGRES_PASSWORD = "<private-test-only-password>"
+$env:QUOTEHUB_TEST_LOGIN_PASSWORD = "<different-private-test-only-password>"
+docker compose --profile postgres-test up -d --wait postgres-test
+$env:QUOTEHUB_TEST_DATABASE_URL = "postgresql+psycopg://quotehub_test:$($env:QUOTEHUB_TEST_LOGIN_PASSWORD)@localhost:5434/quotehub_concurrency_test"
+$env:QUOTEHUB_ENABLE_POSTGRES_TESTS = "1"
+$env:QUOTEHUB_ALLOW_TEST_DATABASE_RESET = "1"
+python -m pytest -m postgres -q
+```
+
+Run the SQLite suite separately or run both with `python -m pytest -q` while the opt-in variables are set. Remove only the disposable test container with `docker compose --profile postgres-test rm -sf postgres-test`; its test data lives in temporary storage and is discarded with the container. This command leaves the regular `web` and `db` services alone, and existing `postgres_data` is not involved. If you change the test port, use the same port in the connection URL.
+
+The Compose initialization account is a superuser only inside the disposable PostgreSQL container. It creates `quotehub_test`, a separate non-superuser login that owns `quotehub_concurrency_test`; pytest connects only as that owner. That role can create/drop the QuoteHub test tables, create the test trigger/function, truncate tables, and use their sequences. The fixture constructs the current SQLAlchemy model schema directly; the integration tests do not apply Alembic revisions. The concurrent endpoint tests use separate Flask clients and pooled PostgreSQL connections. They pause a transaction after the request-row lock is acquired and verify PostgreSQL reports the competing transaction waiting on a lock before releasing it. A separate two-session insert race checks the database unique constraint directly. These tests cover the application's current READ COMMITTED transaction behavior; they are not a load test and do not prove correctness under every isolation level, network failure, or multi-host deployment.
+
 ## Stop
 
 ```powershell

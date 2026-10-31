@@ -36,6 +36,27 @@ services:
       retries: 10
       start_period: 10s
 
+  postgres-test:
+    image: postgres:17-alpine
+    profiles: [postgres-test]
+    ports:
+      - "127.0.0.1:${QUOTEHUB_TEST_DB_PORT:-5434}:5432"
+    environment:
+      POSTGRES_DB: quotehub_test_bootstrap
+      POSTGRES_USER: quotehub_test_bootstrap
+      POSTGRES_PASSWORD: ${QUOTEHUB_TEST_POSTGRES_PASSWORD:-}
+      QUOTEHUB_TEST_LOGIN_PASSWORD: ${QUOTEHUB_TEST_LOGIN_PASSWORD:-}
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./scripts/init_concurrency_test_db.sh:/docker-entrypoint-initdb.d/10-test-role.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
   db-roles:
     build: .
     profiles: [setup]

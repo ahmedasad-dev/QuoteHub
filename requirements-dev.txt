@@ -1,2 +1,4 @@
+# Direct development and security-audit dependencies.
 -r requirements.txt
-pytest>=8,<9
+pytest==9.0.3
+pip-audit==2.10.1

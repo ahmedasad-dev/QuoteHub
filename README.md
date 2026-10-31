@@ -7,6 +7,39 @@ QuoteHub has a small Flask foundation, a Jinja2 homepage, a PostgreSQL-backed he
 - Docker with the Compose plugin
 - Git
 
+## Dependencies and reproducible builds
+
+`requirements.txt` and `requirements-dev.txt` list direct packages with exact versions. `requirements.lock` pins the complete runtime dependency set used by the Docker image; `requirements-dev.lock` adds the exact test and audit tools and their dependencies. The Docker image installs only the runtime lock. These locks target the project's Python 3.12 environment; packages with platform-specific wheels may select different artifacts on Windows and Linux while retaining the pinned version.
+
+To install development dependencies from the lock:
+
+```powershell
+python -m pip install -r requirements-dev.lock
+```
+
+Run the vulnerability audit against the pinned development/test dependency set with:
+
+```powershell
+python -m pip_audit -r requirements-dev.lock
+```
+
+The command checks package advisories published by the Python packaging ecosystem; it does not scan Docker operating-system packages, application code, secrets, or runtime configuration. A nonzero exit code means findings need review. Do not silence findings to make the command pass.
+
+Update dependencies deliberately: choose a package to update, change its exact direct pin, then resolve locks in clean Python 3.12 environments. In PowerShell, after activating each fresh environment, use:
+
+```powershell
+python -m pip install -r requirements.txt
+python -m pip freeze | Set-Content -Encoding ascii requirements.lock
+
+# In a separate fresh environment:
+python -m pip install -r requirements-dev.txt
+python -m pip freeze | Set-Content -Encoding ascii requirements-dev.lock
+```
+
+Run the audit, full tests, and Docker build; review upstream release notes before deployment. Do not refresh every package automatically. `pip-audit` is a development tool only and is not installed in the web image. The lock files pin package versions but do not include artifact hashes, so they do not prove the downloaded wheel bytes or make builds identical across CPU platforms. `pip-audit` checks published Python package advisories, not operating-system packages inside Docker images.
+
+The Dockerfile uses the explicit Python patch tag `python:3.12.16-slim`; PostgreSQL and the backup/restore utility images use `postgres:17.11-alpine3.24`. Version tags make the intended software release clearer than floating family tags, but registries can retarget a tag. An image digest identifies an immutable image manifest (or multi-platform manifest), while a version tag is easier to update and read. This project does not pin digests: digest pins would make rebuilds byte-for-byte more stable, but require a deliberate digest refresh to receive rebuilt base-image security updates and may need per-platform selection. Review and update these tags regularly, then rebuild and test. PostgreSQL remains on major version 17; do not change major versions without a separately planned data-upgrade procedure.
+
 ## Local development
 
 For a new setup, copy `.env.example` to `.env`. If `.env` already exists, keep it and add the new role variables instead of copying over it. Set three **different**, URL-safe local database passwords (`POSTGRES_PASSWORD`, `RUNTIME_DB_PASSWORD`, `MIGRATION_DB_PASSWORD`) and a random `SECRET_KEY` in `.env`. Generate a key with `python -c "import secrets; print(secrets.token_hex(32))"`. Compose reads this file automatically. Keep `.env` private. On an existing database volume, keep its original `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`; changing those Compose values does not update PostgreSQL's existing roles or database.
@@ -203,7 +236,7 @@ Treat archives as sensitive customer data. Keep backup directory access limited,
 Run all tests after installing development dependencies:
 
 ```powershell
-python -m pip install -r requirements-dev.txt
+python -m pip install -r requirements-dev.lock
 python -m pytest -q
 ```
 
